@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Доступ запрещен - NITI{% endblock %}
+
+{% block body_class %}h-full flex items-center justify-center px-4{% endblock %}
+
+{% block content %}
+<div class="text-center">
+    <div class="inline-flex items-center justify-center w-20 h-20 bg-yellow-100 rounded-full mb-6">
+        <svg class="w-10 h-10 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+    </div>
+    
+    <h1 class="text-6xl font-bold text-gray-900 mb-4">403</h1>
+    <p class="text-xl text-gray-600 mb-8">Доступ запрещен</p>
+    <p class="text-gray-500 mb-8">У вас нет прав для доступа к этой странице.</p>
+    
+    <a href="{{ url_for('feed') }}" 
+       class="gradient-btn inline-block px-6 py-3 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition">
+        Вернуться на главную
+    </a>
+</div>
+{% endblock %}
