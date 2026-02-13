@@ -1,8 +1,7 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileAllowed
 from wtforms import StringField, PasswordField, TextAreaField, SubmitField
-from wtforms.validators import Optional
-from wtforms.validators import DataRequired, Length, ValidationError, Regexp
+from wtforms.validators import DataRequired, Length, ValidationError, Regexp, Optional
 from models import User
 
 
@@ -14,8 +13,9 @@ class LoginForm(FlaskForm):
                             validators=[DataRequired(message="Введите пароль")])
     submit = SubmitField('Войти')
 
-class FollowForm(FlaskForm):
-    submit = SubmitField('Подписаться')
+class SearchForm(FlaskForm):
+    q = StringField('Поиск', validators=[Optional()])
+    submit = SubmitField('Найти')
 
 class RegistrationForm(FlaskForm):
     """Форма регистрации"""
@@ -49,14 +49,16 @@ class PostForm(FlaskForm):
     submit = SubmitField('Опубликовать')
 
 
-class AvatarForm(FlaskForm):
-    """Форма загрузки аватара"""
+class EditProfileForm(FlaskForm):
+    """Форма редактирования профиля"""
     avatar = FileField('Выберите фото',
                       validators=[
                           FileAllowed(['png', 'jpg', 'jpeg', 'gif', 'webp'], 
                                     'Только изображения: png, jpg, jpeg, gif, webp')
                       ])
-    submit = SubmitField('Загрузить аватар')
-
-    interests = StringField('Интересы (через запятую)', validators=[Optional()])
+    interests = StringField('Интересы (через запятую)', 
+                          validators=[Optional(), Length(max=500)])
     submit = SubmitField('Сохранить изменения')
+
+class EmptyForm(FlaskForm):
+    submit = SubmitField('Подписаться')

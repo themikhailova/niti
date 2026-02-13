@@ -10,14 +10,16 @@ from functools import wraps
 
 from config import config
 from models import db, User, Post
-from forms import LoginForm, RegistrationForm, PostForm, AvatarForm, FollowForm
-from utils import save_avatar, delete_avatar, get_avatar_url
-from utils import get_recommended_posts, get_bubbles
+from forms import LoginForm, RegistrationForm, PostForm, EditProfileForm, SearchForm, EmptyForm
+from utils import save_avatar, delete_avatar, get_avatar_url, RecommendationEngine
+from flask_wtf.csrf import CSRFProtect, generate_csrf
+
 
 def create_app(config_name='default'):
     """Application factory"""
     app = Flask(__name__)
-    
+    csrf = CSRFProtect(app)
+
     # Загружаем конфигурацию
     app.config.from_object(config[config_name])
     
@@ -62,13 +64,6 @@ def create_app(config_name='default'):
             return f(*args, **kwargs)
         return decorated_function
     
-
-    @app.context_processor
-    def csrf_token_processor():
-        from flask_wtf.csrf import generate_csrf
-        return dict(csrf_token=generate_csrf)
-    
-    
     # Before request - загружаем пользователя
     @app.before_request
     def load_current_user():
@@ -79,13 +74,15 @@ def create_app(config_name='default'):
             if user:
                 g.current_user = user
             else:
-                # Невалидная сессия - очищаем
                 session.clear()
     
     # Context processor для шаблонов
     @app.context_processor
     def utility_processor():
-        return dict(avatar_url=get_avatar_url)
+        return dict(
+        avatar_url=get_avatar_url,
+        csrf_token=generate_csrf  
+    )
     
     # Error handlers
     @app.errorhandler(404)
@@ -115,7 +112,7 @@ def create_app(config_name='default'):
         return redirect(url_for('login'))
     
     @app.route('/register', methods=['GET', 'POST'])
-    @limiter.limit("3 per hour")
+    # @limiter.limit("3 per hour")
     def register():
         if g.current_user:
             return redirect(url_for('feed'))
@@ -126,7 +123,6 @@ def create_app(config_name='default'):
             username = form.username.data.strip()
             password = form.password.data
             
-            # Дополнительная валидация
             is_valid, error = User.validate_username(username)
             if not is_valid:
                 flash(error, 'error')
@@ -137,7 +133,6 @@ def create_app(config_name='default'):
                 flash(error, 'error')
                 return render_template('register.html', form=form)
             
-            # Создаём пользователя
             try:
                 new_user = User(username=username)
                 new_user.set_password(password)
@@ -156,7 +151,7 @@ def create_app(config_name='default'):
         return render_template('register.html', form=form)
     
     @app.route('/login', methods=['GET', 'POST'])
-    @limiter.limit("5 per hour")
+    # @limiter.limit("5 per hour")
     def login():
         if g.current_user:
             return redirect(url_for('feed'))
@@ -170,7 +165,6 @@ def create_app(config_name='default'):
             user = User.query.filter_by(username=username).first()
             
             if user and user.check_password(password):
-                # Регенерируем session ID для защиты от session fixation
                 session.clear()
                 session.permanent = True
                 session['user_id'] = user.id
@@ -179,7 +173,6 @@ def create_app(config_name='default'):
                 app.logger.info(f'Пользователь вошел: {username}')
                 flash('Вход выполнен!', 'success')
                 
-                # Redirect to next page or feed
                 next_page = request.args.get('next')
                 if next_page and next_page.startswith('/'):
                     return redirect(next_page)
@@ -202,41 +195,75 @@ def create_app(config_name='default'):
     @login_required
     def feed():
         page = request.args.get('page', 1, type=int)
+        mode = request.args.get('mode', 'balanced')  # режим рекомендаций
         
-        # Базовые посты от подписок + свои
+        # Получаем базовые посты (подписки + свои)
         followed_ids = [u.id for u in g.current_user.following.all()]
-        base_query = Post.query.filter(Post.user_id.in_(followed_ids + [g.current_user.id]))
         
-        pagination = base_query.order_by(Post.created_at.desc()).paginate(
-            page=page,
-            per_page=app.config['POSTS_PER_PAGE'],
-            error_out=False
-        )
+        # Запрос с eager loading
+        all_posts_query = Post.query.filter(
+            Post.user_id.in_(followed_ids + [g.current_user.id])
+        ).options(
+            db.joinedload(Post.user)
+        ).order_by(Post.created_at.desc())
         
-        # AI-рекомендации
-        all_posts = pagination.items
-        recommended_posts = get_recommended_posts(g.current_user, all_posts)
-        bubbles = get_bubbles(recommended_posts)
+        # Получаем все посты для рекомендаций (ограничим последние 100)
+        all_posts = all_posts_query.limit(100).all()
         
-        # ← Вот исправление: создаём форму и передаём её
+        # Применяем AI-рекомендации
+        if all_posts:
+            recommended_posts = RecommendationEngine.get_recommended_posts(
+                g.current_user, 
+                all_posts, 
+                mode=mode
+            )
+        else:
+            recommended_posts = []
+        
+        # Пагинация уже отсортированных постов
+        start_idx = (page - 1) * app.config['POSTS_PER_PAGE']
+        end_idx = start_idx + app.config['POSTS_PER_PAGE']
+        posts = recommended_posts[start_idx:end_idx]
+        
+        # Создаем объект пагинации вручную
+        total_posts = len(recommended_posts)
+        total_pages = (total_posts + app.config['POSTS_PER_PAGE'] - 1) // app.config['POSTS_PER_PAGE']
+        
+        class SimplePagination:
+            def __init__(self, page, per_page, total):
+                self.page = page
+                self.per_page = per_page
+                self.total = total
+                self.pages = total_pages
+                self.has_prev = page > 1
+                self.has_next = page < total_pages
+                self.prev_num = page - 1 if self.has_prev else None
+                self.next_num = page + 1 if self.has_next else None
+                self.items = posts
+        
+        pagination = SimplePagination(page, app.config['POSTS_PER_PAGE'], total_posts)
+        
+        # Получаем "пузыри" для режима исследования
+        bubbles = RecommendationEngine.get_filter_bubbles(posts) if mode == 'bubbles' else {}
+        
         form = PostForm()
         
         return render_template('feed.html',
-                            form=form,              # ← добавили
-                            bubbles=bubbles,
-                            posts=recommended_posts,
-                            pagination=pagination)
+                             form=form,
+                             posts=posts,
+                             pagination=pagination,
+                             bubbles=bubbles,
+                             current_mode=mode)
     
     @app.route('/post', methods=['POST'])
     @login_required
-    @limiter.limit("30 per hour")
+    # @limiter.limit("30 per hour")
     def create_post():
         form = PostForm()
         
         if form.validate_on_submit():
             content = form.content.data.strip()
             
-            # Дополнительная валидация
             is_valid, error = Post.validate_content(content)
             if not is_valid:
                 flash(error, 'error')
@@ -245,10 +272,7 @@ def create_app(config_name='default'):
             try:
                 new_post = Post(content=content, user_id=g.current_user.id)
                 db.session.add(new_post)
-                
-                # Увеличиваем счетчик постов
                 g.current_user.posts_count += 1
-                
                 db.session.commit()
                 flash('Пост создан!', 'success')
                 
@@ -268,7 +292,6 @@ def create_app(config_name='default'):
     def delete_post(post_id):
         post = Post.query.get_or_404(post_id)
         
-        # Проверяем, что пост принадлежит текущему пользователю
         if post.user_id != g.current_user.id:
             abort(403)
         
@@ -288,10 +311,8 @@ def create_app(config_name='default'):
     @login_required
     def profile(username):
         user = User.query.filter_by(username=username).first_or_404()
-        
         page = request.args.get('page', 1, type=int)
         
-        # Получаем посты с пагинацией
         pagination = Post.query.filter_by(user_id=user.id)\
                               .order_by(Post.created_at.desc())\
                               .paginate(
@@ -299,7 +320,7 @@ def create_app(config_name='default'):
                                   per_page=app.config['POSTS_PER_PAGE'],
                                   error_out=False
                               )
-        
+        follow_form = EmptyForm()
         posts = pagination.items
         is_following = g.current_user.is_following(user)
         
@@ -308,47 +329,47 @@ def create_app(config_name='default'):
                              posts=posts,
                              pagination=pagination,
                              is_following=is_following, 
-                             current_user=g.current_user)
+                             current_user=g.current_user,
+                             follow_form=follow_form)
     
     @app.route('/edit_profile', methods=['GET', 'POST'])
     @login_required
     def edit_profile():
-        form = AvatarForm()
-    
-        # Предзаполняем интересы
-        form.interests.data = ', '.join(g.current_user.interests or [])
+        form = EditProfileForm()
         
         if form.validate_on_submit():
+            # Обработка аватара
             if form.avatar.data:
-                # Сохраняем новый аватар
                 filename, error = save_avatar(form.avatar.data, g.current_user.username)
                 
                 if error:
                     flash(error, 'error')
-                    return render_template('edit_profile.html', form=form, user=g.current_user)
-                
-                # Удаляем старый аватар
-                delete_avatar(g.current_user.avatar)
-                
-                # Обновляем в БД
-                g.current_user.avatar = filename
-                
-                try:
-                    db.session.commit()
-                    app.logger.info(f'Пользователь {g.current_user.username} обновил аватар')
-                    flash('Аватар обновлён!', 'success')
-                    return redirect(url_for('profile', username=g.current_user.username))
-                except Exception as e:
-                    db.session.rollback()
-                    app.logger.error(f'Ошибка при обновлении аватара: {e}')
-                    flash('Ошибка при сохранении.', 'error')
-            # Сохраняем интересы
-            interests = [i.strip() for i in form.interests.data.split(',') if i.strip()]
-            g.current_user.interests = interests
-            db.session.commit()
+                else:
+                    delete_avatar(g.current_user.avatar)
+                    g.current_user.avatar = filename
             
-            flash('Профиль обновлён!', 'success')
-            return redirect(url_for('profile', username=g.current_user.username))
+            # Обработка интересов
+            if form.interests.data:
+                interests_raw = form.interests.data
+                interests_list = [i.strip() for i in interests_raw.split(',') if i.strip()]
+                g.current_user.interests = interests_list[:20]  # Максимум 20 интересов
+            else:
+                g.current_user.interests = []
+            
+            try:
+                db.session.commit()
+                app.logger.info(f'Пользователь {g.current_user.username} обновил профиль')
+                flash('Профиль обновлён!', 'success')
+                return redirect(url_for('profile', username=g.current_user.username))
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f'Ошибка при обновлении профиля: {e}')
+                flash('Ошибка при сохранении.', 'error')
+        
+        # Предзаполняем форму
+        if not form.is_submitted():
+            if g.current_user.interests:
+                form.interests.data = ', '.join(g.current_user.interests)
         
         return render_template('edit_profile.html', form=form, user=g.current_user)
     
@@ -394,13 +415,13 @@ def create_app(config_name='default'):
     
     @app.route('/search')
     @login_required
-    @limiter.limit("60 per hour")
+    # @limiter.limit("60 per hour")
     def search():
+        form = SearchForm()
         query = request.args.get('q', '').strip()
         page = request.args.get('page', 1, type=int)
         
         if not query:
-            # Показываем популярных пользователей
             popular_users = User.query.order_by(
                 User.followers_count.desc()
             ).limit(6).all()
@@ -411,7 +432,6 @@ def create_app(config_name='default'):
                                  query="",
                                  pagination=None)
         
-        # Поиск с использованием параметризованного запроса
         pagination = User.query.filter(
             User.username.ilike(f'{query}%')
         ).paginate(
@@ -420,14 +440,12 @@ def create_app(config_name='default'):
             error_out=False
         )
         
-        form = FollowForm()  # или просто hidden_tag без полей
-    
         return render_template('search.html',
-                            users=pagination.items,
-                            popular_users=[],
-                            query=query,
-                            pagination=pagination,
-                            form=form)  # ← передаём форму
+                             form=form,
+                             users=pagination.items,
+                             popular_users=[],
+                             query=query,
+                             pagination=pagination)
     
     return app
 
