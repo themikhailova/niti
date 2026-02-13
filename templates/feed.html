@@ -90,9 +90,9 @@
 
     <!-- Пагинация -->
     {% if pagination %}
-        {% include '_pagination.html' with context %}
         {% set endpoint = 'feed' %}
         {% set kwargs = {} %}
+        {% include '_pagination.html' with context %}
     {% endif %}
 </main>
 {% endblock %}

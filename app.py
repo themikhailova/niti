@@ -151,7 +151,6 @@ def create_app(config_name='default'):
         return render_template('register.html', form=form)
     
     @app.route('/login', methods=['GET', 'POST'])
-    # @limiter.limit("5 per hour")
     def login():
         if g.current_user:
             return redirect(url_for('feed'))
@@ -179,7 +178,7 @@ def create_app(config_name='default'):
                 return redirect(url_for('feed'))
             else:
                 app.logger.warning(f'Неудачная попытка входа для: {username}')
-                flash('Неверное имя пользователя или пароль.', 'error')
+                flash('Неверное имя или пароль', 'error')
         
         return render_template('login.html', form=form)
     
@@ -299,7 +298,7 @@ def create_app(config_name='default'):
             db.session.delete(post)
             g.current_user.posts_count -= 1
             db.session.commit()
-            flash('Пост удален.', 'success')
+            flash('Пост удалён.', 'success')
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'Ошибка при удалении поста: {e}')
