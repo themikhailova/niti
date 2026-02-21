@@ -1,61 +1,64 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+*.pyo
+*.pyd
 .Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
+dist/
+build/
 
-# Flask
-instance/
-.webassets-cache
+# Virtual environment
+venv/
+env/
+.venv/
+# Virtual environment
+backend/back/
+backend/venv/
+backend/env/
 
-# Environment
-.env
-.env.local
-
-# Database
+# Virtual environment
+frontend/front/
+frontend/venv/
+frontend/env/
+# Flask / SQLite
 *.db
-*.sqlite
 *.sqlite3
+instance/
 
-# Uploads
-static/uploads/avatars/*
-!static/uploads/avatars/.gitkeep
+# Migrations (спорно — обычно включают в репо)
+# migrations/
+
+# Logs
+logs/
+*.log
+
+# Environment variables — НИКОГДА не пушить
+.env
+.env.*
+!.env.example
+
+# Uploads (пользовательский контент)
+backend/static/uploads/avatars/*
+!backend/static/uploads/avatars/.gitkeep
+
+# Frontend build
+frontend/node_modules/
+backend/static/dist/
+
+# Vite / Node
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
