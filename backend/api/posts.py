@@ -1,105 +1,96 @@
-from flask import Blueprint, request, jsonify, g, current_app
+from flask import request, jsonify, g, current_app
 from sqlalchemy import text
+from . import api_bp
 from models import db, Post, User
-from utils import RecommendationEngine
-
-posts_bp = Blueprint('posts', __name__)
+from utils import get_avatar_url, RecommendationEngine
 
 
-def post_to_dict(post, current_user=None):
-    u = post.user
+def post_to_dict(post):
+    author = post.user
     return {
-        'id': post.id,
-        'content': post.content,
-        'created_at': post.created_at.isoformat(),
+        'id': str(post.id),
         'author': {
-            'id': u.id,
-            'username': u.username,
-            'avatar': u.avatar,
+            'id': str(author.id),
+            'name': author.username,
+            'username': f'@{author.username}',
+            'avatar': get_avatar_url(author),
         },
-        'is_own': current_user and post.user_id == current_user.id,
+        'content': {
+            'type': 'text',
+            'text': post.content,
+        },
+        'engagement': {
+            'reactions': 0,
+            'comments': 0,
+            'saves': 0,
+        },
+        'timestamp': post.created_at.strftime('%d.%m.%Y %H:%M'),
     }
 
 
-def login_required(f):
-    from functools import wraps
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not g.current_user:
-            return jsonify({'error': 'Не авторизован'}), 401
-        return f(*args, **kwargs)
-    return decorated
-
-
-@posts_bp.route('', methods=['GET'])
-@login_required
-def get_feed():
+@api_bp.route('/posts/feed', methods=['GET'])
+def feed():
+    """Лента постов с рекомендациями"""
     page = request.args.get('page', 1, type=int)
-    mode = request.args.get('mode', 'balanced')
-    per_page = current_app.config['POSTS_PER_PAGE']
+    per_page = current_app.config.get('POSTS_PER_PAGE', 20)
 
-    followed_ids = [u.id for u in g.current_user.following.all()]
-    all_posts = Post.query.filter(
-        Post.user_id.in_(followed_ids + [g.current_user.id])
-    ).options(
-        db.joinedload(Post.user)
-    ).order_by(Post.created_at.desc()).limit(100).all()
+    if g.current_user:
+        # Получаем посты пользователей, на которых подписан
+        followed_ids = [u.id for u in g.current_user.following]
+        followed_ids.append(g.current_user.id)
 
-    if all_posts:
-        recommended = RecommendationEngine.get_recommended_posts(
-            g.current_user, all_posts, mode=mode
-        )
+        all_posts = Post.query.filter(
+            Post.user_id.in_(followed_ids)
+        ).order_by(Post.created_at.desc()).all()
+
+        # Рекомендательная система
+        mode = request.args.get('mode', 'balanced')
+        posts = RecommendationEngine.get_recommended_posts(g.current_user, all_posts, mode)
     else:
-        recommended = []
+        # Гость видит публичную ленту
+        posts = Post.query.order_by(Post.created_at.desc()).limit(per_page * page).all()
 
-    total = len(recommended)
+    # Пагинация
     start = (page - 1) * per_page
-    end = start + per_page
-    page_posts = recommended[start:end]
+    page_posts = posts[start:start + per_page]
 
     return jsonify({
-        'posts': [post_to_dict(p, g.current_user) for p in page_posts],
+        'posts': [post_to_dict(p) for p in page_posts],
         'page': page,
-        'has_more': end < total,
-        'total': total,
+        'has_more': len(posts) > start + per_page,
     })
 
 
-@posts_bp.route('', methods=['POST'])
-@login_required
+@api_bp.route('/posts', methods=['POST'])
 def create_post():
-    data = request.get_json()
-    content = (data.get('content') or '').strip() if data else ''
+    if not g.current_user:
+        return jsonify({'error': 'Требуется авторизация'}), 401
 
-    is_valid, error = Post.validate_content(content)
-    if not is_valid:
-        return jsonify({'error': error}), 422
+    data = request.get_json() or {}
+    content = (data.get('content') or '').strip()
 
-    try:
-        post = Post(content=content, user_id=g.current_user.id)
-        db.session.add(post)
-        g.current_user.posts_count += 1
-        db.session.commit()
-        db.session.refresh(post)
-        return jsonify(post_to_dict(post, g.current_user)), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Ошибка при создании поста'}), 500
+    valid, err = Post.validate_content(content)
+    if not valid:
+        return jsonify({'error': err}), 400
+
+    post = Post(content=content, user_id=g.current_user.id)
+    g.current_user.posts_count += 1
+    db.session.add(post)
+    db.session.commit()
+
+    return jsonify(post_to_dict(post)), 201
 
 
-@posts_bp.route('/<int:post_id>', methods=['DELETE'])
-@login_required
+@api_bp.route('/posts/<int:post_id>', methods=['DELETE'])
 def delete_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    if not g.current_user:
+        return jsonify({'error': 'Требуется авторизация'}), 401
 
+    post = Post.query.get_or_404(post_id)
     if post.user_id != g.current_user.id:
         return jsonify({'error': 'Нет доступа'}), 403
 
-    try:
-        db.session.delete(post)
-        g.current_user.posts_count = max(0, g.current_user.posts_count - 1)
-        db.session.commit()
-        return jsonify({'message': 'Удалено'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Ошибка при удалении'}), 500
+    g.current_user.posts_count = max(0, g.current_user.posts_count - 1)
+    db.session.delete(post)
+    db.session.commit()
+    return jsonify({'ok': True})
