@@ -39,7 +39,7 @@ export function AuthModal({ onClose, onSuccess }: AuthModalProps) {
         </button>
 
         <h2 className="text-2xl font-bold text-gray-900 mb-1">
-          {mode === 'login' ? 'Вход в Curate' : 'Регистрация'}
+          {mode === 'login' ? 'Вход в niti' : 'Регистрация'}
         </h2>
         <p className="text-gray-500 mb-6 text-sm">
           {mode === 'login' ? 'Добро пожаловать обратно!' : 'Создайте аккаунт, чтобы начать'}

@@ -72,7 +72,7 @@ export default function App() {
         <div className="max-w-[1800px] mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-8">
-              <h1 className="text-2xl font-bold text-gray-900">Curate</h1>
+              <h1 className="text-2xl font-bold text-gray-900">niti</h1>
               <div className="relative w-96 hidden lg:block">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
