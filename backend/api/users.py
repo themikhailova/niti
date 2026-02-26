@@ -1,46 +1,57 @@
 from flask import request, jsonify, g
 from . import api_bp
-from models import db, Post, User
+from models import db, Post, User, Board
 from utils import get_avatar_url, save_avatar, delete_avatar
+from .boards import board_to_dict
+from .posts import post_to_dict
 
 
 def user_profile_to_dict(user, current_user=None):
-    posts = user.posts.order_by(Post.created_at.desc()).limit(20).all()
     is_following = current_user.is_following(user) if current_user and current_user != user else False
+    posts = user.posts.order_by(Post.created_at.desc()).limit(20).all()
+    boards = user.boards.order_by(Board.created_at.desc()).all()
 
     return {
         'id': str(user.id),
         'displayName': user.username,
         'username': f'@{user.username}',
         'avatar': get_avatar_url(user),
-        'bio': '',  # Поле bio можно добавить в модель User при необходимости
+        'bio': user.bio or '',
         'isFollowing': is_following,
         'stats': {
             'followers': user.followers_count,
             'following': user.following_count,
-            'boards': 0,  # Boards пока mock
+            'boards': user.boards.count(),
         },
-        'boards': [],   # Boards пока mock — заглушка
-        'posts': [
-            {
-                'id': str(p.id),
-                'author': {
-                    'id': str(user.id),
-                    'name': user.username,
-                    'username': f'@{user.username}',
-                    'avatar': get_avatar_url(user),
-                },
-                'content': {
-                    'type': 'text',
-                    'text': p.content,
-                    'title': p.content[:60] + '...' if len(p.content) > 60 else p.content,
-                },
-                'engagement': {'reactions': 0, 'comments': 0, 'saves': 0},
-                'timestamp': p.created_at.strftime('%d.%m.%Y'),
-            }
-            for p in posts
-        ],
+        'boards': [board_to_dict(b, current_user) for b in boards],
+        'posts': [post_to_dict(p) for p in posts],
     }
+
+
+@api_bp.route('/users/search', methods=['GET'])
+def search_users():
+    """Поиск пользователей по username"""
+    q = (request.args.get('q') or '').strip()
+    if not q:
+        return jsonify({'users': []})
+
+    users = User.query.filter(
+        User.username.ilike(f'%{q}%')
+    ).limit(20).all()
+
+    return jsonify({
+        'users': [
+            {
+                'id': str(u.id),
+                'username': f'@{u.username}',
+                'displayName': u.username,
+                'avatar': get_avatar_url(u),
+                'followersCount': u.followers_count,
+                'isFollowing': g.current_user.is_following(u) if g.current_user else False,
+            }
+            for u in users
+        ]
+    })
 
 
 @api_bp.route('/users/<username>', methods=['GET'])
@@ -53,33 +64,16 @@ def get_user(username):
 def get_user_posts(username):
     user = User.query.filter_by(username=username).first_or_404()
     posts = user.posts.order_by(Post.created_at.desc()).all()
-    return jsonify({
-        'posts': [
-            {
-                'id': str(p.id),
-                'author': {
-                    'id': str(user.id),
-                    'name': user.username,
-                    'username': f'@{user.username}',
-                    'avatar': get_avatar_url(user),
-                },
-                'content': {'type': 'text', 'text': p.content},
-                'engagement': {'reactions': 0, 'comments': 0, 'saves': 0},
-                'timestamp': p.created_at.strftime('%d.%m.%Y'),
-            }
-            for p in posts
-        ]
-    })
+    return jsonify({'posts': [post_to_dict(p) for p in posts]})
 
 
 @api_bp.route('/users/<username>/follow', methods=['POST'])
 def follow_user(username):
     if not g.current_user:
         return jsonify({'error': 'Требуется авторизация'}), 401
-
     user = User.query.filter_by(username=username).first_or_404()
-    if g.current_user.follow(user):
-        db.session.commit()
+    g.current_user.follow(user)
+    db.session.commit()
     return jsonify({'ok': True, 'followers': user.followers_count})
 
 
@@ -87,10 +81,9 @@ def follow_user(username):
 def unfollow_user(username):
     if not g.current_user:
         return jsonify({'error': 'Требуется авторизация'}), 401
-
     user = User.query.filter_by(username=username).first_or_404()
-    if g.current_user.unfollow(user):
-        db.session.commit()
+    g.current_user.unfollow(user)
+    db.session.commit()
     return jsonify({'ok': True, 'followers': user.followers_count})
 
 
@@ -101,7 +94,6 @@ def update_me():
 
     user = g.current_user
 
-    # Аватар
     if 'avatar' in request.files:
         file = request.files['avatar']
         if file.filename:
@@ -112,11 +104,17 @@ def update_me():
             user.avatar = filename
             delete_avatar(old_avatar)
 
+    # Обновление bio
+    data = request.form or {}
+    if 'bio' in data:
+        user.bio = data['bio'][:300]
+
     db.session.commit()
     return jsonify({
         'id': user.id,
         'username': user.username,
         'avatar': get_avatar_url(user),
+        'bio': user.bio or '',
         'followers_count': user.followers_count,
         'following_count': user.following_count,
         'posts_count': user.posts_count,
