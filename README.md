@@ -1,257 +1,155 @@
-# NITI - Социальная сеть
+# NITI – контентная социальная сеть с персонализацией по интересам и настроению
 
-Безопасная и современная социальная сеть на Flask.
+Учебный MVP проекта студенток гр. 1307 СПбГЭТУ «ЛЭТИ»  
+Михайлова Мария Александровна  
+Черникова Полина Владимировна  
+Санкт-Петербург, 2026
 
-## 🚀 Возможности
+![NITI Preview](image.png)
 
-- ✅ Регистрация и авторизация с безопасным хешированием паролей
-- ✅ Создание и удаление постов
-- ✅ Система подписок (follow/unfollow)
-- ✅ Персональная лента постов
-- ✅ Поиск пользователей с пагинацией
-- ✅ Загрузка аватаров с валидацией
-- ✅ CSRF защита на всех формах
-- ✅ Rate limiting для защиты от брутфорса
-- ✅ Responsive дизайн (Tailwind CSS)
+## О проекте
 
-## 🔒 Безопасность
+**NITI** — минималистичная контентная социальная сеть для безопасного обмена вдохновляющим контентом (цитаты, эстетика, мемы, фото, мысли).  
+Главные фичи:
+- Регистрация / аутентификация
+- Профили, поиск пользователей, подписки (follow/unfollow)
+- Создание постов и досок (boards) с эмоциональным тоном (mood: Joyful, Calm, Reflective и др.)
+- Лента рекомендаций с учётом подписок, интересов и настроения (цветная индикация)
+- Загрузка аватаров и изображений постов
+- Минималистичный адаптивный дизайн + тёмная/светлая тема
+- Базовая безопасность: CSRF, rate limiting, хеширование паролей
 
-- CSRF токены на всех формах
-- Валидация загружаемых файлов (MIME-type + содержимое)
-- Rate limiting на критичных эндпоинтах
-- Безопасное хранение паролей (pbkdf2:sha256)
-- Защита от SQL injection через ORM
-- Защита от XSS (автоэкранирование Jinja2)
-- Session security (httponly, samesite)
-- Логирование всех важных событий
+Проект разрабатывается как дипломная работа и MVP для 10–50 тестовых пользователей.
 
-## 📋 Требования
+## Технологический стек
 
-- Python 3.8+
-- pip
-- virtualenv (рекомендуется)
+**Frontend**  
+- React 18 + TypeScript  
+- Vite (быстрый dev-сервер и сборка)  
+- Tailwind CSS v4 (utility-first)  
+- Lucide React (иконки)  
+- react-responsive-masonry (сетка досок)  
+- Axios / fetch + React Hooks + Context
 
-## 🛠️ Установка
+**Backend**  
+- Flask (Python 3.12+)  
+- SQLAlchemy + Flask-Migrate (ORM и миграции)  
+- SQLite (dev) → PostgreSQL (prod)  
+- Flask-CORS, Flask-Limiter, Flask-WTF (CSRF), Werkzeug (пароли)  
+- Pillow (обработка изображений)  
+- scikit-learn + NumPy (рекомендации)
 
-### 1. Клонируйте репозиторий
+## Структура проекта
+niti/
+├── backend/               # Flask backend
+│   ├── app.py             # точка входа
+│   ├── config.py
+│   ├── models.py
+│   ├── forms.py
+│   ├── utils.py           # TfidfVectorizer и др.
+│   ├── api/               # blueprints (auth, posts, users)
+│   ├── migrations/
+│   ├── requirements.txt
+│   └── ...
+├── frontend/              # React + Vite
+│   ├── src/
+│   ├── public/
+│   ├── vite.config.ts
+│   ├── tailwind.config.js
+│   ├── package.json
+│   └── ...
+├── static/                # uploads/avatars, css/js
+├── templates/             # Jinja2 шаблоны (если SSR)
+├── .env.example
+├── .gitignore
+└── README.md
+
+## Локальный запуск (Quick Start)
+
+### Требования
+
+- Python 3.10+  
+- Node.js 18+ и npm / pnpm / yarn  
+- Git
+
+### Шаг 1: Клонирование репозитория
 
 ```bash
-git clone <repository-url>
-cd niti-social-network
+git clone https://github.com/themikhailova/niti.git
+cd niti
 ```
 
-### 2. Создайте виртуальное окружение
+### Шаг 2: Backend (Flask)
 
+Создайте и активируйте виртуальное окружениеBashpython -m venv venv
 ```bash
-python -m venv venv
-
-# Windows
+# Windows:
 venv\Scripts\activate
-
-# Linux/Mac
+```
+```bash
+# macOS/Linux:
 source venv/bin/activate
 ```
 
-### 3. Установите зависимости
+Установите зависимости
 
 ```bash
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
-### 4. Настройте переменные окружения
+Настройте переменные окружения
 
 ```bash
-# Скопируйте пример
 cp .env.example .env
-
-# Отредактируйте .env и установите настоящий SECRET_KEY
-# Сгенерировать можно так:
-python -c "import secrets; print(secrets.token_hex(32))"
+```
+Откройте .env и укажите минимум:
+```bash
+SECRET_KEY=your-very-long-random-secret-key
+FLASK_ENV=development
+DATABASE_URL=sqlite:///social_network.db   (по умолчанию)
+или для PostgreSQL: postgresql://user:pass@localhost:5432/niti
 ```
 
-### 5. Инициализируйте базу данных
+Инициализируйте и обновите базу данных
 
 ```bash
-# Инициализация миграций (только первый раз)
-flask db init
-
-# Создание миграции
+flask db init    # только первый раз
 flask db migrate -m "Initial migration"
-
-# Применение миграций
 flask db upgrade
 ```
 
-### 6. Создайте необходимые директории
+Создайте необходимые директории
 
 ```bash
-mkdir -p static/uploads/avatars
-mkdir -p logs
+mkdir -p static/uploads/avatars logs
 ```
 
-## 🚀 Запуск
-
-### Development режим
+### Шаг 3: Frontend (React + Vite)
 
 ```bash
-python app.py
+cd frontend
+npm install          # или pnpm install / yarn
+npm run dev          # запускает на http://localhost:5173
 ```
 
-Приложение будет доступно по адресу: `http://127.0.0.1:5000`
+### Шаг 4: Запуск всего проекта
 
-### Production режим
+В одном терминале — backend:
 
 ```bash
-# Установите FLASK_ENV
-export FLASK_ENV=production  # Linux/Mac
-set FLASK_ENV=production     # Windows
-
-# Используйте production сервер (например, Gunicorn)
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 app:app
+cd backend
+python app.py 
 ```
 
-## 📁 Структура проекта
+→ API доступен на http://127.0.0.1:5000
 
-```
-niti-social-network/
-├── app.py                 # Главный файл приложения
-├── config.py              # Конфигурация
-├── models.py              # Модели БД
-├── forms.py               # WTForms формы
-├── utils.py               # Вспомогательные функции
-├── requirements.txt       # Зависимости
-├── .env.example          # Пример переменных окружения
-├── .gitignore            # Git ignore файл
-├── README.md             # Документация
-├── templates/            # HTML шаблоны
-│   ├── base.html
-│   ├── login.html
-│   ├── register.html
-│   ├── feed.html
-│   ├── profile.html
-│   ├── search.html
-│   ├── edit_profile.html
-│   ├── _header.html
-│   ├── _messages.html
-│   ├── _pagination.html
-│   └── errors/
-│       ├── 403.html
-│       ├── 404.html
-│       └── 500.html
-├── static/
-│   └── uploads/
-│       └── avatars/      # Загруженные аватары
-├── logs/                 # Логи приложения
-└── migrations/           # Миграции БД (создается автоматически)
-```
-
-## 🔧 Конфигурация
-
-Основные настройки в `config.py`:
-
-- `SECRET_KEY` - секретный ключ (ОБЯЗАТЕЛЬНО измените!)
-- `SQLALCHEMY_DATABASE_URI` - путь к БД
-- `MAX_CONTENT_LENGTH` - максимальный размер загружаемых файлов
-- `POSTS_PER_PAGE` - количество постов на странице
-- Rate limiting параметры
-
-## 📝 Использование
-
-### Регистрация нового пользователя
-
-1. Перейдите на `/register`
-2. Введите username (только латиница, цифры, _)
-3. Введите пароль (минимум 6 символов)
-4. Нажмите "Создать аккаунт"
-
-### Создание поста
-
-1. В ленте введите текст (максимум 5000 символов)
-2. Нажмите "Опубликовать"
-
-### Подписка на пользователя
-
-1. Найдите пользователя через поиск
-2. Перейдите в его профиль
-3. Нажмите "Подписаться"
-
-### Загрузка аватара
-
-1. Перейдите в "Редактировать профиль"
-2. Выберите изображение (PNG, JPG, JPEG, GIF, WEBP)
-3. Нажмите "Загрузить аватар"
-
-## 🐛 Известные ограничения
-
-- Нет восстановления пароля
-- Нет email подтверждения
-- Нет приватных профилей
-- Нет лайков и комментариев
-- Нет уведомлений в реальном времени
-
-## 🔄 Миграции БД
+В другом терминале — frontend:
 
 ```bash
-# Создать новую миграцию после изменения моделей
-flask db migrate -m "Описание изменений"
-
-# Применить миграции
-flask db upgrade
-
-# Откатить миграцию
-flask db downgrade
+cd frontend
+npm run dev
 ```
 
-## 📊 Логирование
+→ Откройте http://localhost:5173
 
-Логи сохраняются в `logs/social_network.log`:
-
-- Регистрация новых пользователей
-- Попытки входа (успешные и неудачные)
-- Обновление аватаров
-- Ошибки приложения
-
-## 🧪 Тестирование
-
-```bash
-# Установите pytest
-pip install pytest pytest-flask
-
-# Запустите тесты
-pytest
-```
-
-## 🚨 Безопасность
-
-### Важные замечания для production:
-
-1. **Обязательно измените SECRET_KEY** в `.env`
-2. Установите `SESSION_COOKIE_SECURE=True` (только с HTTPS)
-3. Используйте PostgreSQL вместо SQLite
-4. Настройте reverse proxy (nginx)
-5. Включите SSL/TLS сертификаты
-6. Настройте регулярные бэкапы БД
-7. Мониторьте логи на подозрительную активность
-8. Регулярно обновляйте зависимости
-
-## 📄 Лицензия
-
-MIT License
-
-## 👥 Авторы
-
-Ваше имя
-
-## 🤝 Вклад
-
-Pull requests приветствуются! Для крупных изменений сначала откройте issue.
-
-## 📞 Поддержка
-
-Если у вас возникли проблемы:
-
-1. Проверьте логи в `logs/social_network.log`
-2. Убедитесь, что все зависимости установлены
-3. Проверьте настройки в `.env`
-4. Создайте issue в GitHub
+(Frontend должен проксировать запросы к backend — проверьте vite.config.ts на proxy настройку: /api → http://localhost:5000)
