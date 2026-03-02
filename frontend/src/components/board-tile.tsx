@@ -4,11 +4,12 @@ import type { Board } from '../data/mock-data';
 
 interface BoardTileProps {
   board: Board;
+  onClick?: () => void;
 }
 
-export function BoardTile({ board }: BoardTileProps) {
+export function BoardTile({ board, onClick }: BoardTileProps) {
   return (
-    <div className="flex-shrink-0 w-56 cursor-pointer group">
+    <div className="flex-shrink-0 w-56 cursor-pointer group" onClick={onClick}>
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md hover:border-blue-200 transition-all duration-200">
         {/* Board Cover */}
         <div className="relative h-32 overflow-hidden">

@@ -5,9 +5,10 @@ import type { Board } from '../data/mock-data';
 interface BoardPreviewProps {
   board: Board;
   onFollow?: (boardId: string) => void;
+  onClick?: () => void;
 }
 
-export function BoardPreview({ board, onFollow }: BoardPreviewProps) {
+export function BoardPreview({ board, onFollow, onClick }: BoardPreviewProps) {
   const [isHovered, setIsHovered] = React.useState(false);
 
   return (
@@ -15,6 +16,7 @@ export function BoardPreview({ board, onFollow }: BoardPreviewProps) {
       className="bg-white/60 backdrop-blur-sm rounded-lg overflow-hidden shadow-sm hover:shadow-md hover:bg-white/80 transition-all duration-300 cursor-pointer group border border-blue-100/50"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={onClick}
     >
       {/* Cover Image */}
       <div className="relative overflow-hidden">
@@ -67,7 +69,7 @@ export function BoardPreview({ board, onFollow }: BoardPreviewProps) {
 
         {/* Tags */}
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {board.tags.slice(0, 3).map((tag, index) => (
+          {board.tags?.slice(0, 3).map((tag, index) => (
             <span
               key={index}
               className="px-2 py-1 bg-blue-50 text-blue-700/80 rounded text-xs font-medium"

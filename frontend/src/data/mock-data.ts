@@ -1,12 +1,14 @@
-// ============================================================
-// TYPES
-// ============================================================
+// Types
+export type MoodType = 'inspired' | 'curious' | 'peaceful' | 'playful' | 'thoughtful' | 'energetic';
 
-export interface Author {
-  id: string;
-  name: string;
-  username: string;
-  avatar: string;
+export interface MoodConfig {
+  label: string;
+  emoji: string;
+  color: string;
+  lightBg: string;
+  borderColor: string;
+  pastelBg: string;
+  description: string;
 }
 
 export interface Board {
@@ -14,17 +16,24 @@ export interface Board {
   name: string;
   description: string;
   coverImage: string;
-  tags: string[];
   followers: number;
   postCount: number;
   collaborators: number;
+  tags?: string[];
   isFollowing: boolean;
 }
 
 export interface Post {
   id: string;
-  author: Author;
-  sourceBoard?: { id: string; name: string };
+  author: {
+    name: string;
+    username: string;
+    avatar: string;
+  };
+  sourceBoard: {
+    id: string;
+    name: string;
+  } | null;
   content: {
     type: 'image' | 'text' | 'mixed';
     title?: string;
@@ -38,12 +47,13 @@ export interface Post {
     saves: number;
   };
   timestamp: string;
+  mood?: MoodType;
 }
 
 export interface UserProfile {
   id: string;
-  displayName: string;
   username: string;
+  displayName: string;
   avatar: string;
   bio: string;
   stats: {
@@ -55,160 +65,351 @@ export interface UserProfile {
   posts: Post[];
 }
 
-// ============================================================
-// MOCK DATA
-// ============================================================
-
-export const mockBoards: Board[] = [
-  {
-    id: '1',
-    name: 'Минимализм в архитектуре',
-    description: 'Чистые линии, пространство и свет. Лучшие примеры минималистской архитектуры со всего мира.',
-    coverImage: 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=400&h=300&fit=crop',
-    tags: ['архитектура', 'минимализм', 'дизайн'],
-    followers: 12400,
-    postCount: 234,
-    collaborators: 8,
-    isFollowing: true,
+// Mood Configurations
+export const moodConfigs: Record<MoodType, MoodConfig> = {
+  inspired: {
+    label: 'Inspired',
+    emoji: '✨',
+    color: '#8B5CF6',
+    lightBg: 'bg-purple-50',
+    borderColor: 'border-purple-500',
+    pastelBg: '#FAF5FF',
+    description: 'Feeling creative and motivated'
   },
-  {
-    id: '2',
-    name: 'Продуктивность и GTD',
-    description: 'Системы, инструменты и привычки для максимальной эффективности.',
-    coverImage: 'https://images.unsplash.com/photo-1484480974693-6ca0a78fb36b?w=400&h=300&fit=crop',
-    tags: ['продуктивность', 'GTD', 'привычки'],
-    followers: 8900,
-    postCount: 156,
-    collaborators: 12,
-    isFollowing: false,
+  curious: {
+    label: 'Curious',
+    emoji: '🔍',
+    color: '#3B82F6',
+    lightBg: 'bg-blue-50',
+    borderColor: 'border-blue-500',
+    pastelBg: '#EFF6FF',
+    description: 'Exploring and discovering'
   },
-  {
-    id: '3',
-    name: 'Цифровое искусство',
-    description: 'Иллюстрации, концепт-арт и генеративное искусство.',
-    coverImage: 'https://images.unsplash.com/photo-1547891654-e66ed7ebb968?w=400&h=300&fit=crop',
-    tags: ['арт', 'иллюстрация', 'ИИ'],
-    followers: 24100,
-    postCount: 412,
-    collaborators: 25,
-    isFollowing: true,
+  peaceful: {
+    label: 'Peaceful',
+    emoji: '🌿',
+    color: '#10B981',
+    lightBg: 'bg-green-50',
+    borderColor: 'border-green-500',
+    pastelBg: '#F0FDF4',
+    description: 'Calm and centered'
   },
-  {
-    id: '4',
-    name: 'Кофейная культура',
-    description: 'Обжарка, заваривание, рецепты. Всё о specialty кофе.',
-    coverImage: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&h=300&fit=crop',
-    tags: ['кофе', 'рецепты', 'барista'],
-    followers: 6700,
-    postCount: 89,
-    collaborators: 4,
-    isFollowing: false,
+  playful: {
+    label: 'Playful',
+    emoji: '🎨',
+    color: '#F59E0B',
+    lightBg: 'bg-amber-50',
+    borderColor: 'border-amber-500',
+    pastelBg: '#FFFBEB',
+    description: 'Fun and lighthearted'
   },
-  {
-    id: '5',
-    name: 'UX Research',
-    description: 'Методы исследований, кейсы и инсайты из практики UX.',
-    coverImage: 'https://images.unsplash.com/photo-1561070791-2526d30994b5?w=400&h=300&fit=crop',
-    tags: ['UX', 'исследования', 'дизайн'],
-    followers: 15300,
-    postCount: 198,
-    collaborators: 17,
-    isFollowing: false,
+  thoughtful: {
+    label: 'Thoughtful',
+    emoji: '💭',
+    color: '#6366F1',
+    lightBg: 'bg-indigo-50',
+    borderColor: 'border-indigo-500',
+    pastelBg: '#EEF2FF',
+    description: 'Deep in contemplation'
   },
-  {
-    id: '6',
-    name: 'Растения дома',
-    description: 'Уход, размножение и оформление интерьера с комнатными растениями.',
-    coverImage: 'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=400&h=300&fit=crop',
-    tags: ['растения', 'интерьер', 'уход'],
-    followers: 9200,
-    postCount: 145,
-    collaborators: 6,
-    isFollowing: true,
-  },
-];
-
-const mockAuthor: Author = {
-  id: 'user1',
-  name: 'Алекс Волков',
-  username: '@alexvolkov',
-  avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+  energetic: {
+    label: 'Energetic',
+    emoji: '⚡',
+    color: '#EF4444',
+    lightBg: 'bg-red-50',
+    borderColor: 'border-red-500',
+    pastelBg: '#FEF2F2',
+    description: 'Full of energy and excitement'
+  }
 };
 
+// Mock Boards Data
+export const mockBoards: Board[] = [
+  {
+    id: 'b1',
+    name: 'Minimalist Aesthetics',
+    description: 'Clean lines, simple forms, and intentional spaces. Exploring the beauty of less is more.',
+    coverImage: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&q=80',
+    followers: 12400,
+    postCount: 3456,
+    collaborators: 8,
+    tags: ['minimalism', 'design', 'architecture'],
+    isFollowing: true
+  },
+  {
+    id: 'b2',
+    name: 'Natural Landscapes',
+    description: 'Breathtaking views from around the world. Mountains, oceans, forests, and beyond.',
+    coverImage: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80',
+    followers: 28900,
+    postCount: 8934,
+    collaborators: 15,
+    tags: ['nature', 'photography', 'travel'],
+    isFollowing: false
+  },
+  {
+    id: 'b3',
+    name: 'Botanical Studies',
+    description: 'The intricate patterns and structures of plant life. From macro photography to botanical illustrations.',
+    coverImage: 'https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=800&q=80',
+    followers: 15600,
+    postCount: 4521,
+    collaborators: 12,
+    tags: ['botany', 'plants', 'science'],
+    isFollowing: true
+  },
+  {
+    id: 'b4',
+    name: 'Editorial Design',
+    description: 'Magazine spreads, layouts, and typography that tell stories through design.',
+    coverImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&q=80',
+    followers: 19200,
+    postCount: 5678,
+    collaborators: 20,
+    tags: ['editorial', 'typography', 'publishing'],
+    isFollowing: false
+  },
+  {
+    id: 'b5',
+    name: 'Urban Exploration',
+    description: 'Discovering hidden corners and architectural gems in cities around the globe.',
+    coverImage: 'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=800&q=80',
+    followers: 22100,
+    postCount: 6789,
+    collaborators: 18,
+    tags: ['urban', 'architecture', 'photography'],
+    isFollowing: true
+  },
+  {
+    id: 'b6',
+    name: 'Ceramic Arts',
+    description: 'Handcrafted pottery, sculptures, and functional art pieces celebrating clay and form.',
+    coverImage: 'https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=800&q=80',
+    followers: 11800,
+    postCount: 2345,
+    collaborators: 9,
+    tags: ['ceramics', 'pottery', 'craft'],
+    isFollowing: false
+  },
+  {
+    id: 'b7',
+    name: 'Analog Photography',
+    description: 'Film photography in all its grainy, imperfect, beautiful glory.',
+    coverImage: 'https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=800&q=80',
+    followers: 17300,
+    postCount: 5432,
+    collaborators: 14,
+    tags: ['film', 'analog', 'photography'],
+    isFollowing: true
+  },
+  {
+    id: 'b8',
+    name: 'Japanese Aesthetics',
+    description: 'Wabi-sabi, zen, and the art of finding beauty in imperfection and transience.',
+    coverImage: 'https://images.unsplash.com/photo-1528360983277-13d401cdc186?w=800&q=80',
+    followers: 25700,
+    postCount: 7123,
+    collaborators: 16,
+    tags: ['japanese', 'zen', 'philosophy'],
+    isFollowing: false
+  }
+];
+
+// Mock Posts Data
 export const mockPosts: Post[] = [
   {
     id: 'p1',
-    author: mockAuthor,
-    sourceBoard: { id: '3', name: 'Цифровое искусство' },
+    author: {
+      name: 'Elena Rodriguez',
+      username: '@elenarod',
+      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&q=80'
+    },
+    sourceBoard: {
+      id: 'b1',
+      name: 'Minimalist Aesthetics'
+    },
     content: {
       type: 'image',
-      title: 'Генеративные паттерны с помощью p5.js',
-      caption: 'Экспериментировал с алгоритмами шума Перлина для создания органических форм. Каждый запуск даёт уникальный результат.',
-      imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&h=600&fit=crop',
+      title: 'The Space Between',
+      caption: 'Sometimes the most powerful design element is the one you don\'t add. This minimalist workspace embodies the principle that simplicity is the ultimate sophistication.',
+      imageUrl: 'https://images.unsplash.com/photo-1484480974693-6ca0a78fb36b?w=1200&q=80'
     },
-    engagement: { reactions: 284, comments: 42, saves: 118 },
-    timestamp: '2 часа назад',
+    engagement: {
+      reactions: 342,
+      comments: 28,
+      saves: 156
+    },
+    timestamp: '2 hours ago',
+    mood: 'peaceful'
   },
   {
     id: 'p2',
     author: {
-      id: 'user2',
-      name: 'Марина Соколова',
-      username: '@marina.design',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face',
+      name: 'Marcus Chen',
+      username: '@marcusc',
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&q=80'
     },
-    sourceBoard: { id: '1', name: 'Минимализм в архитектуре' },
+    sourceBoard: {
+      id: 'b2',
+      name: 'Natural Landscapes'
+    },
     content: {
       type: 'image',
-      title: 'Tadao Ando — Church of the Light',
-      caption: 'Игра света и тени как архитектурный элемент. Простой крест в стене создаёт сакральное пространство.',
-      imageUrl: 'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?w=800&h=600&fit=crop',
+      title: 'Mountain Morning',
+      caption: 'Caught this moment just as the sun broke through the clouds. The way light transforms a landscape never ceases to amaze me.',
+      imageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1200&q=80'
     },
-    engagement: { reactions: 521, comments: 67, saves: 203 },
-    timestamp: '5 часов назад',
+    engagement: {
+      reactions: 521,
+      comments: 43,
+      saves: 234
+    },
+    timestamp: '5 hours ago',
+    mood: 'inspired'
   },
   {
     id: 'p3',
-    author: mockAuthor,
+    author: {
+      name: 'Sophia Anderson',
+      username: '@sophiaa',
+      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&q=80'
+    },
+    sourceBoard: null,
     content: {
       type: 'text',
-      title: 'Почему я отказался от todo-приложений',
-      text: 'Три года я искал идеальное приложение для задач. Перепробовал всё: Notion, Todoist, Things, OmniFocus. А потом взял бумажный блокнот.\n\nПарадокс: чем сложнее система, тем больше энергии уходит на её поддержку, а не на сами задачи. Бумага не присылает уведомлений. Она не требует синхронизации. Она просто есть.\n\nЕсли задача важная — я её запомню. Если не помню — может, не так уж и важна?',
+      title: 'On Finding Your Creative Process',
+      text: 'I used to think that having a creative process meant following a strict routine. Wake up at 5am, journal for 20 minutes, meditate, etc.\n\nBut I\'ve learned that creativity isn\'t about rigidity—it\'s about creating the conditions where inspiration can find you. Sometimes that\'s a structured morning. Sometimes it\'s a 2am burst of energy.\n\nThe key is staying curious and being present when those moments arrive.'
     },
-    engagement: { reactions: 892, comments: 134, saves: 445 },
-    timestamp: '1 день назад',
+    engagement: {
+      reactions: 287,
+      comments: 54,
+      saves: 198
+    },
+    timestamp: '8 hours ago',
+    mood: 'thoughtful'
   },
   {
     id: 'p4',
     author: {
-      id: 'user3',
-      name: 'Дмитрий Ким',
-      username: '@dmitry.coffee',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
+      name: 'Yuki Tanaka',
+      username: '@yukitanaka',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&q=80'
     },
-    sourceBoard: { id: '4', name: 'Кофейная культура' },
+    sourceBoard: {
+      id: 'b3',
+      name: 'Botanical Studies'
+    },
     content: {
       type: 'image',
-      title: 'Эфиопия Иргачеффе: разбор вкусового профиля',
-      caption: 'Черника, жасмин, цедра лимона. Этот лот от Nomad Roasters — один из лучших в этом году.',
-      imageUrl: 'https://images.unsplash.com/photo-1442512595331-e89e73853f31?w=800&h=600&fit=crop',
+      title: 'Fern Fractal',
+      caption: 'The mathematical precision in nature never stops fascinating me. This unfurling fern frond demonstrates the Fibonacci sequence perfectly—a reminder that beauty and mathematics are deeply intertwined.',
+      imageUrl: 'https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=1200&q=80'
     },
-    engagement: { reactions: 156, comments: 28, saves: 67 },
-    timestamp: '2 дня назад',
+    engagement: {
+      reactions: 412,
+      comments: 36,
+      saves: 289
+    },
+    timestamp: '12 hours ago',
+    mood: 'curious'
   },
+  {
+    id: 'p5',
+    author: {
+      name: 'James Mitchell',
+      username: '@jmitchell',
+      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&q=80'
+    },
+    sourceBoard: {
+      id: 'b4',
+      name: 'Editorial Design'
+    },
+    content: {
+      type: 'image',
+      title: 'Typography in Motion',
+      caption: 'Experimenting with kinetic typography for a magazine spread. The challenge was making the text feel alive while maintaining readability.',
+      imageUrl: 'https://images.unsplash.com/photo-1513542789411-b6a5d4f31634?w=1200&q=80'
+    },
+    engagement: {
+      reactions: 198,
+      comments: 21,
+      saves: 134
+    },
+    timestamp: '1 day ago',
+    mood: 'playful'
+  },
+  {
+    id: 'p6',
+    author: {
+      name: 'Isabella Costa',
+      username: '@isabellac',
+      avatar: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=150&q=80'
+    },
+    sourceBoard: {
+      id: 'b5',
+      name: 'Urban Exploration'
+    },
+    content: {
+      type: 'image',
+      title: 'City Geometry',
+      caption: 'Found this incredible play of light and shadow in downtown. Architecture becomes abstract art when you look at it from the right angle.',
+      imageUrl: 'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=1200&q=80'
+    },
+    engagement: {
+      reactions: 456,
+      comments: 38,
+      saves: 267
+    },
+    timestamp: '1 day ago',
+    mood: 'energetic'
+  },
+  {
+    id: 'p7',
+    author: {
+      name: 'Elena Rodriguez',
+      username: '@elenarod',
+      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&q=80'
+    },
+    sourceBoard: {
+      id: 'b7',
+      name: 'Analog Photography'
+    },
+    content: {
+      type: 'image',
+      title: 'Portra 400 Magic',
+      caption: 'There\'s something about film grain that digital can never quite replicate. Shot on Portra 400 with my grandfather\'s old Canon AE-1.',
+      imageUrl: 'https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=1200&q=80'
+    },
+    engagement: {
+      reactions: 389,
+      comments: 45,
+      saves: 234
+    },
+    timestamp: '2 days ago',
+    mood: 'peaceful'
+  }
 ];
 
+// Mock User Profile Data
 export const mockUserProfile: UserProfile = {
-  id: 'user1',
-  displayName: 'Алекс Волков',
-  username: '@alexvolkov',
-  avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=face',
-  bio: 'Дизайнер продуктов и любитель минимализма. Пишу о дизайне, технологиях и том, как делать меньше, но лучше.',
+  id: 'u1',
+  username: '@elenarod',
+  displayName: 'Elena Rodriguez',
+  avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&q=80',
+  bio: 'Designer & visual storyteller. Finding beauty in simplicity and meaning in details. Based in Barcelona, working worldwide. 🎨✨',
   stats: {
-    followers: 4800,
-    following: 312,
-    boards: 6,
+    followers: 15600,
+    following: 342,
+    boards: 12
   },
-  boards: mockBoards.slice(0, 4),
-  posts: mockPosts.filter(p => p.author.id === 'user1'),
+  boards: [
+    mockBoards[0],
+    mockBoards[2],
+    mockBoards[4],
+    mockBoards[6]
+  ],
+  posts: [
+    mockPosts[0],
+    mockPosts[6]
+  ]
 };
