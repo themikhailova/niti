@@ -40,6 +40,7 @@
 - scikit-learn + NumPy (рекомендации)
 
 ## Структура проекта
+```bash
 niti/
 ├── backend/               # Flask backend
 │   ├── app.py             # точка входа
@@ -63,6 +64,7 @@ niti/
 ├── .env.example
 ├── .gitignore
 └── README.md
+```
 
 ## Локальный запуск (Quick Start)
 
