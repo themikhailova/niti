@@ -8,16 +8,36 @@ import type { Post, Board, UserProfile } from '../data/mock-data';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
-const fetchOptions: RequestInit = {
-  credentials: 'include',
-  headers: { 'Content-Type': 'application/json' },
+// ── Хранилище токенов ────────────────────────────────────────────────────────
+
+const TOKEN_KEY = 'niti_access_token';
+const REFRESH_KEY = 'niti_refresh_token';
+
+export const tokenStorage = {
+  getAccess: () => localStorage.getItem(TOKEN_KEY),
+  getRefresh: () => localStorage.getItem(REFRESH_KEY),
+  save: (access: string, refresh: string) => {
+    localStorage.setItem(TOKEN_KEY, access);
+    localStorage.setItem(REFRESH_KEY, refresh);
+  },
+  clear: () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+  },
 };
 
+// ── Базовый fetch: Bearer-токен + JSON ────────────────────────────────────────
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = tokenStorage.getAccess();
   const res = await fetch(`${BASE_URL}${path}`, {
-    ...fetchOptions,
+    credentials: 'include',
     ...options,
-    headers: { ...fetchOptions.headers, ...(options?.headers ?? {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options?.headers ?? {}),
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Ошибка сети' }));
@@ -33,6 +53,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export interface AuthUser {
   id: number;
   username: string;
+  email: string;
   avatar: string;
   bio?: string;
   followers_count: number;
@@ -40,18 +61,56 @@ export interface AuthUser {
   posts_count: number;
 }
 
+interface AuthResponse {
+  user: AuthUser;
+  access_token: string;
+  refresh_token: string;
+}
+
 export const authApi = {
-  async login(data: { username: string; password: string }): Promise<AuthUser> {
-    return apiFetch('/auth/login', { method: 'POST', body: JSON.stringify(data) });
+  /** Вход по email ИЛИ username */
+  async login(data: { identifier: string; password: string }): Promise<AuthUser> {
+    const res = await apiFetch<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    tokenStorage.save(res.access_token, res.refresh_token);
+    return res.user;
   },
-  async register(data: { username: string; password: string }): Promise<AuthUser> {
-    return apiFetch('/auth/register', { method: 'POST', body: JSON.stringify(data) });
+
+  /** Регистрация: email + username + пароль */
+  async register(data: { email: string; username: string; password: string }): Promise<AuthUser> {
+    const res = await apiFetch<AuthResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    tokenStorage.save(res.access_token, res.refresh_token);
+    return res.user;
   },
+
+  /** Восстановление сессии из localStorage-токена при старте приложения */
+  async restoreSession(): Promise<AuthUser | null> {
+    if (!tokenStorage.getAccess()) return null;
+    try {
+      return await apiFetch<AuthUser>('/auth/me');
+    } catch {
+      tokenStorage.clear();
+      return null;
+    }
+  },
+
+  /** Выход: инвалидирует токен на бэкенде + очищает localStorage */
   async logout(): Promise<void> {
-    return apiFetch('/auth/logout', { method: 'POST' });
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } finally {
+      tokenStorage.clear();
+    }
   },
+
+  /** @deprecated используй restoreSession() */
   async me(): Promise<AuthUser | null> {
-    try { return await apiFetch('/auth/me'); } catch { return null; }
+    return this.restoreSession();
   },
 };
 

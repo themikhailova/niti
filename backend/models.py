@@ -1,4 +1,5 @@
 from datetime import datetime
+import enum
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -33,6 +34,12 @@ board_collaborators = db.Table('board_collaborators',
     db.Column('board_id', db.Integer, db.ForeignKey('board.id'), primary_key=True)
 )
 
+# ── Теги постов (many-to-many) ────────────────────────────────
+post_tags = db.Table('post_tags',
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('tag_id',  db.Integer, db.ForeignKey('tag.id',  ondelete='CASCADE'), primary_key=True)
+)
+
 
 class User(db.Model):
     """Модель пользователя"""
@@ -40,6 +47,8 @@ class User(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(30), unique=True, nullable=False, index=True)
+    # email добавлен для JWT-аутентификации; nullable=True — обратная совместимость с существующими строками
+    email = db.Column(db.String(255), unique=True, nullable=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     avatar = db.Column(db.String(255), nullable=True, default='default_avatar.png')
     bio = db.Column(db.String(300), nullable=True, default='')
@@ -130,6 +139,26 @@ class User(db.Model):
             return False, "Пароль слишком длинный"
         return True, None
 
+    def to_public_dict(self) -> dict:
+        """Публичные данные — для author в постах и профиле."""
+        from utils import get_avatar_url
+        return {
+            'id': self.id,
+            'username': self.username,
+            'avatar': get_avatar_url(self),
+            'bio': self.bio or '',
+            'followers_count': self.followers_count,
+            'following_count': self.following_count,
+            'posts_count': self.posts_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def to_private_dict(self) -> dict:
+        """Приватные данные — только для владельца аккаунта."""
+        d = self.to_public_dict()
+        d['email'] = self.email
+        return d
+
     def __repr__(self):
         return f'<User {self.username}>'
 
@@ -178,28 +207,63 @@ class Board(db.Model):
         return f'<Board {self.name}>'
 
 
+class MoodEnum(str, enum.Enum):
+    joyful     = 'joyful'
+    calm       = 'calm'
+    reflective = 'reflective'
+    energetic  = 'energetic'
+    melancholic = 'melancholic'
+    inspired   = 'inspired'
+
+
+class VisibilityEnum(str, enum.Enum):
+    public  = 'public'
+    private = 'private'
+
+
+class Tag(db.Model):
+    """Теги постов."""
+    __tablename__ = 'tag'
+
+    id   = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), unique=True, nullable=False, index=True)
+
+    def __repr__(self):
+        return f'<Tag {self.name!r}>'
+
+
 class Post(db.Model):
     """Модель поста"""
     __tablename__ = 'post'
 
-    # Типы постов
-    TYPE_TEXT = 'text'
+    # Типы постов (обратная совместимость)
+    TYPE_TEXT  = 'text'
     TYPE_IMAGE = 'image'
     TYPE_MIXED = 'mixed'
 
-    id = db.Column(db.Integer, primary_key=True)
+    id        = db.Column(db.Integer, primary_key=True)
+    post_type = db.Column(db.String(10), nullable=False, default='text')
+    content   = db.Column(db.Text, nullable=True)
+    title     = db.Column(db.String(200), nullable=True)
 
-    # Тип и содержимое
-    post_type = db.Column(db.String(10), nullable=False, default='text')  # text | image | mixed
-    content = db.Column(db.Text, nullable=True)       # текстовая часть
-    title = db.Column(db.String(200), nullable=True)  # заголовок (опционально)
-    image_url = db.Column(db.String(500), nullable=True)  # URL картинки
+    # Изображения
+    image_url         = db.Column(db.String(500), nullable=True)
+    image_preview_url = db.Column(db.String(500), nullable=True)  # новое: превью
+
+    # Настроение и видимость
+    mood       = db.Column(db.Enum(MoodEnum), nullable=True)                          # новое
+    visibility = db.Column(db.Enum(VisibilityEnum), nullable=False,                   # новое
+                           default=VisibilityEnum.public)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
-    board_id = db.Column(db.Integer, db.ForeignKey('board.id'), nullable=True, index=True)
+    user_id  = db.Column(db.Integer, db.ForeignKey('user.id'),   nullable=False, index=True)
+    board_id = db.Column(db.Integer, db.ForeignKey('board.id'),  nullable=True,  index=True)
+
+    # Теги (many-to-many)
+    tags = db.relationship('Tag', secondary=post_tags, lazy='subquery',
+                           backref=db.backref('posts', lazy=True))
 
     @staticmethod
     def validate_content(content, post_type='text', image_url=None):

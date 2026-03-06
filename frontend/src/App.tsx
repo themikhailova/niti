@@ -1,6 +1,9 @@
 import React from 'react';
 import Masonry from 'react-responsive-masonry';
-import { Search, Compass, Bell, User, Home, Plus, Filter } from 'lucide-react';
+import { Search, Bell, User, Home, Plus, Filter, LogOut } from 'lucide-react';
+import { AuthModal } from './components/auth-modal';
+import { authApi, tokenStorage } from './services/api';
+import type { AuthUser } from './services/api';
 import { PostCard } from './components/post-card';
 import { BoardPreview } from './components/board-preview';
 import { ProfilePage } from './components/profile-page';
@@ -26,6 +29,28 @@ export default function App() {
   const [toastMessage, setToastMessage] = React.useState('');
   const [hasUnreadNotifications, setHasUnreadNotifications] = React.useState(true);
   
+const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
+  const [showAuthModal, setShowAuthModal] = React.useState(false);
+  const isAuthenticated = currentUser !== null;
+
+  // Восстанавливаем сессию при старте
+  React.useEffect(() => {
+    authApi.restoreSession().then(user => {
+      if (user) setCurrentUser(user);
+    });
+  }, []);
+
+  const handleAuthSuccess = (user: AuthUser) => {
+    setCurrentUser(user);
+    setShowAuthModal(false);
+  };
+
+  const handleLogout = async () => {
+    await authApi.logout();
+    setCurrentUser(null);
+    setCurrentView('feed');
+  };
+
   // Split boards into left and right columns
   const leftBoards = mockBoards.filter((_, index) => index % 2 === 0);
   const rightBoards = mockBoards.filter((_, index) => index % 2 !== 0);
@@ -112,8 +137,19 @@ export default function App() {
               >
                 <Home className="w-6 h-6" />
               </button>
-              <button className="p-2 hover:bg-blue-50 rounded-lg transition-colors">
-                <Compass className="w-6 h-6 text-gray-700" />
+              <button 
+                onClick={() => {
+                  if (!isAuthenticated) {
+                    setShowAuthModal(true);
+                  } else {
+                    setCurrentView('profile');
+                  }
+                }}
+                className={`p-2 rounded-lg transition-colors ${
+                  currentView === 'profile' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'
+                }`}
+              >
+                <User className="w-6 h-6" />
               </button>
               <button 
                 onClick={() => setCurrentView('notifications')}
@@ -126,14 +162,15 @@ export default function App() {
                   <span className="absolute top-1 right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
                 )}
               </button>
-              <button 
-                onClick={() => setCurrentView('profile')}
-                className={`p-2 rounded-lg transition-colors ${
-                  currentView === 'profile' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'
-                }`}
-              >
-                <User className="w-6 h-6" />
-              </button>
+              {isAuthenticated && (
+                <button
+                  onClick={handleLogout}
+                  title="Выйти"
+                  className="p-2 rounded-lg transition-colors hover:bg-red-50 text-gray-500 hover:text-red-500"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              )}
             </nav>
           </div>
         </div>
@@ -384,12 +421,19 @@ export default function App() {
         </>
       )}
 
+
       {/* Toast Notification */}
       <Toast
         message={toastMessage}
         isVisible={showToast}
         onClose={() => setShowToast(false)}
       />
+      {showAuthModal && (
+        <AuthModal 
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={handleAuthSuccess}
+        />
+      )}
     </div>
   );
 }

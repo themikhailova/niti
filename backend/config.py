@@ -8,13 +8,21 @@ load_dotenv(os.path.join(basedir, '.env'))
 class Config:
     """Базовая конфигурация"""
     
-    # Секретный ключ
+    # Секретный ключ (сессии / CSRF)
     SECRET_KEY = os.environ.get('SECRET_KEY') or ''
     
     if SECRET_KEY == 'dev-key':
         import warnings
         warnings.warn('Используется дефолтный SECRET_KEY! Измените его в .env файле!')
     
+    # ── JWT (отдельный ключ от SECRET_KEY!) ─────────────────────────────────
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or 'jwt-dev-secret-please-change'
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=15)
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
+    JWT_ALGORITHM = 'HS256'
+    JWT_BLACKLIST_ENABLED = True
+    JWT_BLACKLIST_TOKEN_CHECKS = ['access', 'refresh']
+
     # База данных
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URI') or \
         'sqlite:///' + os.path.join(basedir, 'social_network.db')

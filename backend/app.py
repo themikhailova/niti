@@ -3,42 +3,60 @@ import logging
 from logging.handlers import RotatingFileHandler
 from flask import Flask, jsonify, g, session, send_from_directory
 from flask_migrate import Migrate
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from flask_wtf.csrf import CSRFProtect
 
 from config import config
 from models import db, User
+from extensions import limiter, jwt, jwt_blacklist   # ← единственный источник
 
 
 def create_app(config_name='default'):
     """Application factory"""
     app = Flask(__name__, static_folder='static')
-
     app.config.from_object(config[config_name])
 
-    # CSRF только для non-API роутов; API использует сессии
+    # CSRF только для non-API роутов (API защищён JWT)
     csrf = CSRFProtect(app)
 
-    # CORS для dev (vite на :5173 → flask на :5000)
+    # CORS для dev (vite :5173 → flask :5000)
     CORS(app,
          origins=["http://localhost:5173", "http://127.0.0.1:5173"],
          supports_credentials=True)
 
+    # ── Расширения ───────────────────────────────────────────────────────────
     db.init_app(app)
-    migrate = Migrate(app, db)
+    Migrate(app, db)
+    limiter.init_app(app)
+    jwt.init_app(app)
 
-    limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
-        storage_uri=app.config['RATELIMIT_STORAGE_URL']
-    )
+    # ── JWT callbacks ────────────────────────────────────────────────────────
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload: dict) -> bool:
+        return jwt_payload.get('jti') in jwt_blacklist
 
+    @jwt.revoked_token_loader
+    def revoked_token_response(jwt_header, jwt_payload):
+        return jsonify({'error': 'Token has been revoked'}), 401
+
+    @jwt.expired_token_loader
+    def expired_token_response(jwt_header, jwt_payload):
+        return jsonify({'error': 'Token has expired'}), 401
+
+    @jwt.invalid_token_loader
+    def invalid_token_response(error):
+        return jsonify({'error': 'Invalid token'}), 422
+
+    @jwt.unauthorized_loader
+    def missing_token_response(error):
+        return jsonify({'error': 'Authorization token required'}), 401
+
+    # ── Папки ────────────────────────────────────────────────────────────────
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(os.path.join(app.static_folder, 'uploads', 'posts'), exist_ok=True)
     os.makedirs('logs', exist_ok=True)
 
+    # ── Логирование ──────────────────────────────────────────────────────────
     if not app.debug and not app.testing:
         file_handler = RotatingFileHandler(
             'logs/social_network.log', maxBytes=10240000, backupCount=10
@@ -50,27 +68,24 @@ def create_app(config_name='default'):
         app.logger.addHandler(file_handler)
         app.logger.setLevel(logging.INFO)
 
-    # ── Загружаем текущего пользователя ──────────────────────────────
+    # ── Сессионный пользователь (обратная совместимость) ─────────────────────
     @app.before_request
     def load_current_user():
         g.current_user = None
         if 'user_id' in session:
-            user = User.query.get(session['user_id'])
+            user = db.session.get(User, session['user_id'])
             if user:
                 g.current_user = user
             else:
                 session.clear()
 
-    # ── Регистрируем API blueprints ───────────────────────────────────
-    from api import api_bp
-    # В config.py или app.py
+    # ── Blueprints ───────────────────────────────────────────────────────────
+    from api import api_bp                   # импорт ЗДЕСЬ — после всех init_app
     app.config['WTF_CSRF_CHECK_DEFAULT'] = False
     app.register_blueprint(api_bp)
-
-    # Отключаем CSRF для всех /api/* роутов
     csrf.exempt(api_bp)
 
-    # ── Error handlers ────────────────────────────────────────────────
+    # ── Error handlers ────────────────────────────────────────────────────────
     @app.errorhandler(404)
     def not_found(e):
         return jsonify({'error': 'Не найдено'}), 404
@@ -86,9 +101,13 @@ def create_app(config_name='default'):
 
     @app.errorhandler(413)
     def too_large(e):
-        return jsonify({'error': 'Файл слишком большой (максимум 4MB)'}), 413
+        return jsonify({'error': 'Файл слишком большой (максимум 5 MB)'}), 413
 
-    # ── Production: отдаём React SPA ─────────────────────────────────
+    @app.errorhandler(429)
+    def rate_limit_exceeded(e):
+        return jsonify({'error': 'Слишком много запросов. Попробуйте позже'}), 429
+
+    # ── Production SPA ───────────────────────────────────────────────────────
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve_spa(path):
