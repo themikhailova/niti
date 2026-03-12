@@ -111,10 +111,23 @@ export default function App() {
     setShowToast(true);
     // Перезагружаем фид
     postsApi.getFeed(1).then(setPosts).catch(() => {});
+    // Обновляем посты в профиле, если он уже загружен
+    if (userProfile && currentUser) {
+      postsApi.getMyPosts().then(myPosts => {
+        setUserProfile(prev => prev ? { ...prev, posts: myPosts } : prev);
+      }).catch(() => {});
+    }
   };
 
   const handlePostDeleted = (postId: string) => {
     setPosts(prev => prev.filter(p => p.id !== postId));
+    // Убираем удалённый пост из профиля без лишнего запроса
+    if (userProfile) {
+      setUserProfile(prev => prev
+        ? { ...prev, posts: prev.posts.filter(p => p.id !== postId) }
+        : prev
+      );
+    }
     setToastMessage('Пост удалён');
     setShowToast(true);
   };

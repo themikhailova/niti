@@ -1,4 +1,5 @@
 import React from 'react';
+import Masonry from 'react-responsive-masonry';
 import { Settings, Plus, Grid, List, Trash2 } from 'lucide-react';
 import { PostCard } from './post-card';
 import { BoardTile } from './board-tile';
@@ -207,23 +208,24 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Masonry columnsCount={3} gutter="12px"
+            breakpointCols={{ default: 3, 900: 2, 500: 1 }}
+          >
             {enrichedPosts.map((post) => {
               const postMoodConfig = post.mood ? moodConfigs[post.mood] : null;
-              
               return (
                 <div
                   key={post.id}
                   onClick={() => onPostClick?.(post)}
-                  className="rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer group border border-gray-200"
+                  className="rounded-xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer group border border-gray-200/60 mb-0"
                   style={{ backgroundColor: postMoodConfig ? postMoodConfig.pastelBg : '#ffffff' }}
                 >
                   {post.content.imageUrl ? (
-                    <div className="relative aspect-square overflow-hidden">
+                    <div className="relative overflow-hidden">
                       <img
                         src={post.content.imageUrl}
                         alt={post.content.title || 'Post'}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="w-full h-auto block group-hover:scale-[1.02] transition-transform duration-300"
                       />
                       {(post.is_own ?? false) && (
                         <button
@@ -239,17 +241,18 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
-                          <div className="flex items-center gap-2 mb-2">
-                            {postMoodConfig && (
-                              <span className="text-xl">{postMoodConfig.emoji}</span>
-                            )}
-                            <h3 className="font-semibold text-sm line-clamp-2 flex-1">
+                      {/* Hover overlay с инфо */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
+                          {postMoodConfig && (
+                            <span className="text-base mb-1 block">{postMoodConfig.emoji}</span>
+                          )}
+                          {(post.content.title || post.content.caption) && (
+                            <h3 className="font-semibold text-sm line-clamp-2 mb-1.5">
                               {post.content.title || post.content.caption}
                             </h3>
-                          </div>
-                          <div className="flex items-center gap-4 text-xs">
+                          )}
+                          <div className="flex items-center gap-3 text-xs text-white/80">
                             <span>❤️ {post.engagement.reactions}</span>
                             <span>💬 {post.engagement.comments}</span>
                             <span>🔖 {post.engagement.saves}</span>
@@ -258,8 +261,8 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                       </div>
                     </div>
                   ) : (
-                    <div className="aspect-square p-6 flex flex-col justify-center relative">
-                      {(post.is_own ?? false)  && (
+                    <div className="p-4 relative min-h-[120px] flex flex-col justify-center">
+                      {(post.is_own ?? false) && (
                         <button
                           onClick={async (e) => {
                             e.stopPropagation();
@@ -274,20 +277,26 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                         </button>
                       )}
                       {postMoodConfig && (
-                        <div className="text-3xl mb-3">{postMoodConfig.emoji}</div>
+                        <div className="text-2xl mb-2">{postMoodConfig.emoji}</div>
                       )}
-                      <h3 className="font-semibold text-gray-900 mb-2 line-clamp-3">
-                        {post.content.title}
-                      </h3>
-                      <p className="text-sm text-gray-600 line-clamp-4">
-                        {post.content.text}
+                      {post.content.title && (
+                        <h3 className="font-semibold text-gray-900 text-sm mb-1.5 line-clamp-3">
+                          {post.content.title}
+                        </h3>
+                      )}
+                      <p className="text-xs text-gray-600 line-clamp-5">
+                        {post.content.text || post.content.caption}
                       </p>
+                      <div className="flex items-center gap-3 text-xs text-gray-400 mt-3 pt-2 border-t border-gray-100">
+                        <span>❤️ {post.engagement.reactions}</span>
+                        <span>💬 {post.engagement.comments}</span>
+                      </div>
                     </div>
                   )}
                 </div>
               );
             })}
-          </div>
+          </Masonry>
         )}
       </div>
 
