@@ -2,7 +2,7 @@ import React from 'react';
 import Masonry from 'react-responsive-masonry';
 import { Search, Bell, User, Home, Plus, Filter, LogOut } from 'lucide-react';
 import { AuthModal } from './components/auth-modal';
-import { authApi, tokenStorage } from './services/api';
+import { authApi, postsApi, boardsApi, usersApi } from './services/api';
 import type { AuthUser } from './services/api';
 import { PostCard } from './components/post-card';
 import { BoardPreview } from './components/board-preview';
@@ -14,7 +14,7 @@ import { CreateBoardModal } from './components/CreateBoardModal';
 import { SearchModal } from './components/SearchModal';
 import { NotificationsPage } from './components/NotificationsPage';
 import { Toast } from './components/toast';
-import { mockPosts, mockBoards, mockUserProfile, moodConfigs, type MoodType, type Board, type Post } from './data/mock-data';
+import { moodConfigs, type MoodType, type Board, type Post, type UserProfile } from './data/mock-data';
 
 export default function App() {
   const [currentView, setCurrentView] = React.useState<'feed' | 'profile' | 'board' | 'post' | 'notifications'>('feed');
@@ -27,139 +27,169 @@ export default function App() {
   const [showMoodFilter, setShowMoodFilter] = React.useState(false);
   const [showToast, setShowToast] = React.useState(false);
   const [toastMessage, setToastMessage] = React.useState('');
-  const [hasUnreadNotifications, setHasUnreadNotifications] = React.useState(true);
-  
-const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
+  const [hasUnreadNotifications] = React.useState(true);
+
+  const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
   const [showAuthModal, setShowAuthModal] = React.useState(false);
   const isAuthenticated = currentUser !== null;
 
-  // Восстанавливаем сессию при старте
+  // ── Данные из API ──────────────────────────────────────────────────────────
+  const [posts, setPosts] = React.useState<Post[]>([]);
+  const [boards, setBoards] = React.useState<Board[]>([]);
+  const [userProfile, setUserProfile] = React.useState<UserProfile | null>(null);
+  const [loadingFeed, setLoadingFeed] = React.useState(true);
+  const [loadingBoards, setLoadingBoards] = React.useState(true);
+
+  // ── Восстановление сессии при старте ──────────────────────────────────────
+  // ── Восстановление сессии → затем фид (чтобы is_own пришёл с JWT) ──────────
   React.useEffect(() => {
-    authApi.restoreSession().then(user => {
+    const init = async () => {
+      setLoadingFeed(true);
+      // Сначала восстанавливаем сессию — токен попадает в заголовки
+      const user = await authApi.restoreSession().catch(() => null);
       if (user) setCurrentUser(user);
-    });
+      // Только после этого грузим фид — бэкенд уже знает кто мы
+      try {
+        const feed = await postsApi.getFeed(1);
+        setPosts(feed);
+      } catch {
+        setPosts([]);
+      } finally {
+        setLoadingFeed(false);
+      }
+    };
+    init();
   }, []);
 
+  // ── Загрузка досок ─────────────────────────────────────────────────────────
+  React.useEffect(() => {
+    setLoadingBoards(true);
+    boardsApi.getAll(10)
+      .then(setBoards)
+      .catch(() => setBoards([]))
+      .finally(() => setLoadingBoards(false));
+  }, []);
+
+  // ── Загрузка профиля при переходе на вкладку Profile ──────────────────────
+  React.useEffect(() => {
+    if (currentView === 'profile' && currentUser && !userProfile) {
+      usersApi.getProfile(currentUser.username)
+        .then(setUserProfile)
+        .catch(() => setUserProfile(null));
+    }
+  }, [currentView, currentUser, userProfile]);
+
+  // ── Обработчики ───────────────────────────────────────────────────────────
   const handleAuthSuccess = (user: AuthUser) => {
     setCurrentUser(user);
     setShowAuthModal(false);
+    postsApi.getFeed(1).then(setPosts).catch(() => {});
   };
 
   const handleLogout = async () => {
     await authApi.logout();
     setCurrentUser(null);
+    setUserProfile(null);
     setCurrentView('feed');
   };
 
-  // Split boards into left and right columns
-  const leftBoards = mockBoards.filter((_, index) => index % 2 === 0);
-  const rightBoards = mockBoards.filter((_, index) => index % 2 !== 0);
-
-  const handleFollow = (boardId: string) => {
-    console.log('Following board:', boardId);
-    // In a real app, this would update the state
-    setToastMessage('Board followed successfully!');
+  const handleFollow = async (boardId: string) => {
+    try {
+      await boardsApi.follow(boardId);
+      setBoards(prev => prev.map(b =>
+        b.id === boardId ? { ...b, isFollowing: true, followers: b.followers + 1 } : b
+      ));
+      setToastMessage('Board followed!');
+    } catch {
+      setToastMessage('Не удалось подписаться');
+    }
     setShowToast(true);
   };
 
-  // Filter posts by mood
-  const filteredPosts = selectedMoodFilter === 'all' 
-    ? mockPosts 
-    : mockPosts.filter(post => post.mood === selectedMoodFilter);
+  const handlePostCreated = () => {
+    setToastMessage('Пост опубликован!');
+    setShowToast(true);
+    // Перезагружаем фид
+    postsApi.getFeed(1).then(setPosts).catch(() => {});
+  };
+
+  const handlePostDeleted = (postId: string) => {
+    setPosts(prev => prev.filter(p => p.id !== postId));
+    setToastMessage('Пост удалён');
+    setShowToast(true);
+  };
+
+  // ── Фильтрация постов по настроению ───────────────────────────────────────
+  const filteredPosts = selectedMoodFilter === 'all'
+    ? posts
+    : posts.filter(post => post.mood === selectedMoodFilter);
+
+  const leftBoards = boards.filter((_, i) => i % 2 === 0);
+  const rightBoards = boards.filter((_, i) => i % 2 !== 0);
 
   return (
     <div className="min-h-screen bg-blue-50/30">
-      {/* Create Post Modal */}
-      <CreatePostModal 
-        isOpen={showCreatePost} 
+      {/* Modals */}
+      <CreatePostModal
+        isOpen={showCreatePost}
         onClose={() => setShowCreatePost(false)}
-        onSuccess={() => {
-          setToastMessage('Post created successfully!');
-          setShowToast(true);
-        }}
+        onSuccess={handlePostCreated}
       />
-      
-      {/* Create Board Modal */}
-      <CreateBoardModal 
-        isOpen={showCreateBoard} 
+      <CreateBoardModal
+        isOpen={showCreateBoard}
         onClose={() => setShowCreateBoard(false)}
         onSuccess={() => {
-          setToastMessage('Board created successfully!');
+          setToastMessage('Доска создана!');
           setShowToast(true);
+          boardsApi.getAll(10).then(setBoards).catch(() => {});
         }}
       />
-      
-      {/* Search Modal */}
-      <SearchModal 
+      <SearchModal
         isOpen={showSearch}
         onClose={() => setShowSearch(false)}
-        onPostClick={(post) => {
-          setSelectedPost(post);
-          setCurrentView('post');
-        }}
-        onBoardClick={(board) => {
-          setSelectedBoard(board);
-          setCurrentView('board');
-        }}
-        onUserClick={(userId) => {
-          console.log('Navigate to user:', userId);
-          // In a real app, this would navigate to the user profile
-        }}
-        mockPosts={mockPosts}
-        mockBoards={mockBoards}
+        onPostClick={(post) => { setSelectedPost(post); setCurrentView('post'); }}
+        onBoardClick={(board) => { setSelectedBoard(board); setCurrentView('board'); }}
+        onUserClick={(userId) => console.log('Navigate to user:', userId)}
+        mockPosts={posts}
+        mockBoards={boards}
       />
-      
+
       {/* Top Navigation */}
       <header className="sticky top-0 z-50 bg-white border-b border-blue-100 shadow-sm">
         <div className="max-w-[1800px] mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-8">
-              <h1 className="text-2xl font-bold text-gray-900">NITI</h1>
-              
-              {/* Search Bar */}
+              <h1 className="text-2xl font-bold text-gray-900">НИТИ</h1>
               <button
                 onClick={() => setShowSearch(true)}
                 className="relative w-96 hidden lg:block text-left"
               >
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
                 <div className="w-full pl-10 pr-4 py-2 bg-blue-50/50 border border-blue-100 rounded-lg hover:bg-white hover:border-blue-200 transition-all text-gray-500 cursor-pointer">
-                  Search boards, topics, creators...
+                  Поиск досок, тем, авторов...
                 </div>
               </button>
             </div>
-
             <nav className="flex items-center gap-6">
-              <button 
+              <button
                 onClick={() => setCurrentView('feed')}
-                className={`p-2 rounded-lg transition-colors ${
-                  currentView === 'feed' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'
-                }`}
+                className={`p-2 rounded-lg transition-colors ${currentView === 'feed' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'}`}
               >
                 <Home className="w-6 h-6" />
               </button>
-              <button 
-                onClick={() => {
-                  if (!isAuthenticated) {
-                    setShowAuthModal(true);
-                  } else {
-                    setCurrentView('profile');
-                  }
-                }}
-                className={`p-2 rounded-lg transition-colors ${
-                  currentView === 'profile' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'
-                }`}
+              <button
+                onClick={() => isAuthenticated ? setCurrentView('profile') : setShowAuthModal(true)}
+                className={`p-2 rounded-lg transition-colors ${currentView === 'profile' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'}`}
               >
                 <User className="w-6 h-6" />
               </button>
-              <button 
+              <button
                 onClick={() => setCurrentView('notifications')}
-                className={`p-2 rounded-lg transition-colors relative ${
-                  currentView === 'notifications' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'
-                }`}
+                className={`p-2 rounded-lg transition-colors relative ${currentView === 'notifications' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'}`}
               >
                 <Bell className="w-6 h-6" />
                 {hasUnreadNotifications && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-blue-600 rounded-full"></span>
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-blue-600 rounded-full" />
                 )}
               </button>
               {isAuthenticated && (
@@ -176,102 +206,88 @@ const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
         </div>
       </header>
 
-      {/* Conditional View Rendering */}
+      {/* Views */}
       {currentView === 'profile' ? (
-        <ProfilePage 
-          profile={mockUserProfile} 
-          isOwnProfile={true}
-          onCreatePost={() => setShowCreatePost(true)}
-          onCreateBoard={() => setShowCreateBoard(true)}
-          onBoardClick={(board) => {
-            setSelectedBoard(board);
-            setCurrentView('board');
-          }}
-          onPostClick={(post) => {
-            setSelectedPost(post);
-            setCurrentView('post');
-          }}
-        />
+        userProfile ? (
+          <ProfilePage
+            profile={userProfile}
+            isOwnProfile={true}
+            onCreatePost={() => setShowCreatePost(true)}
+            onCreateBoard={() => setShowCreateBoard(true)}
+            onBoardClick={(board) => { setSelectedBoard(board); setCurrentView('board'); }}
+            onPostClick={(post) => { setSelectedPost(post); setCurrentView('post'); }}
+            onPostDeleted={handlePostDeleted}
+          />
+        ) : (
+          <div className="flex items-center justify-center h-64 text-gray-500">
+            {currentUser ? 'Загрузка профиля...' : 'Войдите чтобы увидеть профиль'}
+          </div>
+        )
       ) : currentView === 'board' && selectedBoard ? (
-        <BoardView 
+        <BoardView
           board={selectedBoard}
-          posts={mockPosts.filter(p => p.sourceBoard?.id === selectedBoard.id)}
+          posts={posts.filter(p => p.sourceBoard?.id === selectedBoard.id)}
           onBack={() => setCurrentView('feed')}
-          onFollowToggle={(boardId) => {
-            console.log('Toggle follow for board:', boardId);
-            setToastMessage(selectedBoard.isFollowing ? 'Unfollowed board' : 'Following board!');
-            setShowToast(true);
+          onFollowToggle={async (boardId) => {
+            await handleFollow(boardId);
           }}
-          onPostClick={(post) => {
-            setSelectedPost(post);
-            setCurrentView('post');
-          }}
+          onPostClick={(post) => { setSelectedPost(post); setCurrentView('post'); }}
         />
       ) : currentView === 'post' && selectedPost ? (
-        <PostDetailView 
+        <PostDetailView
           post={selectedPost}
           onClose={() => setCurrentView('feed')}
+          onDelete={(id) => { handlePostDeleted(id); setCurrentView('feed'); }}
           onBoardClick={(boardIdOrPartial) => {
-            // Look up the full board from mockBoards
-            const fullBoard = mockBoards.find(b => b.id === (typeof boardIdOrPartial === 'string' ? boardIdOrPartial : boardIdOrPartial.id));
-            if (fullBoard) {
-              setSelectedBoard(fullBoard);
-              setCurrentView('board');
-            }
+            const id = typeof boardIdOrPartial === 'string' ? boardIdOrPartial : boardIdOrPartial.id;
+            const found = boards.find(b => b.id === id);
+            if (found) { setSelectedBoard(found); setCurrentView('board'); }
           }}
-          relatedPosts={mockPosts.filter(p => p.id !== selectedPost.id && p.sourceBoard?.id === selectedPost.sourceBoard?.id).slice(0, 4)}
+          relatedPosts={posts
+            .filter(p => p.id !== selectedPost.id && p.sourceBoard?.id === selectedPost.sourceBoard?.id)
+            .slice(0, 4)}
         />
       ) : currentView === 'notifications' ? (
-        <NotificationsPage 
-          onClose={() => setCurrentView('feed')}
-        />
+        <NotificationsPage onClose={() => setCurrentView('feed')} />
       ) : (
         <>
-          {/* Main Content - Three Column Layout */}
           <div className="max-w-[1800px] mx-auto px-6 py-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Left Sidebar - Recommended Boards */}
+
+              {/* Left Sidebar */}
               <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6">
                 <div className="sticky top-24">
                   <h2 className="text-sm font-semibold text-blue-900/60 uppercase tracking-wide mb-4 px-1">
-                    Discover Boards
+                    Рекомендуемые доски
                   </h2>
-                  <Masonry columnsCount={1} gutter="16px">
-                    {leftBoards.map((board) => (
-                      <BoardPreview
-                        key={board.id}
-                        board={board}
-                        onFollow={handleFollow}
-                        onClick={() => {
-                          setSelectedBoard(board);
-                          setCurrentView('board');
-                        }}
-                      />
-                    ))}
-                  </Masonry>
+                  {loadingBoards ? (
+                    <div className="text-gray-400 text-sm text-center py-8">Загрузка...</div>
+                  ) : (
+                    <Masonry columnsCount={1} gutter="16px">
+                      {leftBoards.map((board) => (
+                        <BoardPreview
+                          key={board.id}
+                          board={board}
+                          onFollow={handleFollow}
+                          onClick={() => { setSelectedBoard(board); setCurrentView('board'); }}
+                        />
+                      ))}
+                    </Masonry>
+                  )}
                 </div>
               </aside>
 
               {/* Center Feed */}
               <main className="lg:col-span-6 bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm p-8 -mx-6">
                 <div className="max-w-2xl mx-auto">
-                  {/* Feed Header */}
                   <div className="mb-6">
                     <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h2 className="text-3xl font-semibold text-gray-900 mb-2">
-                          Your Feed
-                        </h2>
-                        <p className="text-gray-600">
-                          Curated content from your followed boards and recommended discoveries
-                        </p>
-                      </div>
                       <button
-                        onClick={() => setShowCreatePost(true)}
+                        onClick={() => isAuthenticated ? setShowCreatePost(true) : setShowAuthModal(true)}
                         className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
                       >
                         <Plus className="w-5 h-5" />
-                        <span className="hidden sm:inline">Create Post</span>
+                        <span className="hidden sm:inline">Новый пост</span>
                       </button>
                     </div>
 
@@ -287,55 +303,41 @@ const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
                       >
                         <Filter className="w-4 h-4" />
                         <span className="font-medium text-sm">
-                          {selectedMoodFilter === 'all' 
-                            ? 'Filter by Mood' 
-                            : `Mood: ${moodConfigs[selectedMoodFilter].label}`}
+                          {selectedMoodFilter === 'all'
+                            ? 'Настроить ленту'
+                            : `Настроение: ${moodConfigs[selectedMoodFilter].label}`}
                         </span>
                         {selectedMoodFilter !== 'all' && (
                           <span className="text-lg">{moodConfigs[selectedMoodFilter].emoji}</span>
                         )}
                       </button>
-
-                      {/* Mood Filter Dropdown */}
                       {showMoodFilter && (
                         <div className="mt-2 p-3 bg-white border border-gray-200 rounded-lg shadow-lg">
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             <button
-                              onClick={() => {
-                                setSelectedMoodFilter('all');
-                                setShowMoodFilter(false);
-                              }}
+                              onClick={() => { setSelectedMoodFilter('all'); setShowMoodFilter(false); }}
                               className={`p-3 rounded-lg border transition-all text-center ${
                                 selectedMoodFilter === 'all'
                                   ? 'border-blue-500 bg-blue-50 text-blue-700'
                                   : 'border-gray-200 hover:border-gray-300'
                               }`}
                             >
-                              <span className="font-medium text-sm">All Moods</span>
+                              <span className="font-medium text-sm">Все</span>
                             </button>
                             {(Object.keys(moodConfigs) as MoodType[]).map((moodKey) => {
                               const mood = moodConfigs[moodKey];
                               const isSelected = selectedMoodFilter === moodKey;
-                              
                               return (
                                 <button
                                   key={moodKey}
-                                  onClick={() => {
-                                    setSelectedMoodFilter(moodKey);
-                                    setShowMoodFilter(false);
-                                  }}
+                                  onClick={() => { setSelectedMoodFilter(moodKey); setShowMoodFilter(false); }}
                                   className={`p-3 rounded-lg border transition-all ${
-                                    isSelected
-                                      ? `${mood.borderColor} ${mood.lightBg}`
-                                      : 'border-gray-200 hover:border-gray-300'
+                                    isSelected ? `${mood.borderColor} ${mood.lightBg}` : 'border-gray-200 hover:border-gray-300'
                                   }`}
                                 >
                                   <div className="flex flex-col items-center gap-1">
                                     <span className="text-xl">{mood.emoji}</span>
-                                    <span 
-                                      className="font-medium text-xs"
-                                      style={{ color: isSelected ? mood.color : undefined }}
-                                    >
+                                    <span className="font-medium text-xs" style={{ color: isSelected ? mood.color : undefined }}>
                                       {mood.label}
                                     </span>
                                   </div>
@@ -350,68 +352,79 @@ const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
 
                   {/* Posts */}
                   <div className="space-y-0">
-                    {filteredPosts.length > 0 ? (
+                    {loadingFeed ? (
+                      <div className="text-center py-12 text-gray-400">Загрузка постов...</div>
+                    ) : filteredPosts.length > 0 ? (
                       filteredPosts.map((post) => (
-                        <PostCard key={post.id} post={post} onClick={() => {
-                          setSelectedPost(post);
-                          setCurrentView('post');
-                        }} />
+                        <PostCard
+                          key={post.id}
+                          post={post}
+                          onClick={() => { setSelectedPost(post); setCurrentView('post'); }}
+                          onDelete={handlePostDeleted}
+                        />
                       ))
                     ) : (
                       <div className="text-center py-12">
-                        <p className="text-gray-500 text-lg">No posts found with this mood</p>
-                        <button
-                          onClick={() => setSelectedMoodFilter('all')}
-                          className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
-                        >
-                          Clear filter
-                        </button>
+                        <p className="text-gray-500 text-lg">
+                          {selectedMoodFilter !== 'all' ? 'Постов с таким настроением нет' : 'Постов пока нет. Создайте первый!'}
+                        </p>
+                        {selectedMoodFilter !== 'all' && (
+                          <button
+                            onClick={() => setSelectedMoodFilter('all')}
+                            className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            Сбросить фильтр
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Load More */}
                   {filteredPosts.length > 0 && (
                     <div className="mt-8 text-center">
-                      <button className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm hover:shadow-md">
-                        Load More Content
+                      <button
+                        onClick={() => postsApi.getFeed(Math.ceil(posts.length / 20) + 1)
+                          .then(more => setPosts(prev => [...prev, ...more]))
+                          .catch(() => {})}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
+                      >
+                        Загрузить ещё
                       </button>
                     </div>
                   )}
                 </div>
               </main>
 
-              {/* Right Sidebar - More Recommended Boards */}
+              {/* Right Sidebar */}
               <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6">
                 <div className="sticky top-24">
                   <h2 className="text-sm font-semibold text-blue-900/60 uppercase tracking-wide mb-4 px-1">
-                    Trending Now
+                    В тренде
                   </h2>
-                  <Masonry columnsCount={1} gutter="16px">
-                    {rightBoards.map((board) => (
-                      <BoardPreview
-                        key={board.id}
-                        board={board}
-                        onFollow={handleFollow}
-                        onClick={() => {
-                          setSelectedBoard(board);
-                          setCurrentView('board');
-                        }}
-                      />
-                    ))}
-                  </Masonry>
+                  {loadingBoards ? (
+                    <div className="text-gray-400 text-sm text-center py-8">Загрузка...</div>
+                  ) : (
+                    <Masonry columnsCount={1} gutter="16px">
+                      {rightBoards.map((board) => (
+                        <BoardPreview
+                          key={board.id}
+                          board={board}
+                          onFollow={handleFollow}
+                          onClick={() => { setSelectedBoard(board); setCurrentView('board'); }}
+                        />
+                      ))}
+                    </Masonry>
+                  )}
                 </div>
               </aside>
             </div>
           </div>
 
-          {/* Mobile Board Discovery - Horizontal Scroll */}
+          {/* Mobile Board Discovery */}
           <div className="lg:hidden px-6 pb-8">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Discover Boards
-            </h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Рекомендуемые доски</h2>
             <div className="flex gap-4 overflow-x-auto pb-4 -mx-6 px-6 scrollbar-hide">
-              {mockBoards.map((board) => (
+              {boards.map((board) => (
                 <div key={board.id} className="flex-shrink-0 w-72">
                   <BoardPreview board={board} onFollow={handleFollow} />
                 </div>
@@ -421,18 +434,9 @@ const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
         </>
       )}
 
-
-      {/* Toast Notification */}
-      <Toast
-        message={toastMessage}
-        isVisible={showToast}
-        onClose={() => setShowToast(false)}
-      />
+      <Toast message={toastMessage} isVisible={showToast} onClose={() => setShowToast(false)} />
       {showAuthModal && (
-        <AuthModal 
-          onClose={() => setShowAuthModal(false)}
-          onSuccess={handleAuthSuccess}
-        />
+        <AuthModal onClose={() => setShowAuthModal(false)} onSuccess={handleAuthSuccess} />
       )}
     </div>
   );

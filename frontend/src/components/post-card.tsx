@@ -1,16 +1,33 @@
 import React from 'react';
-import { Heart, MessageCircle, Bookmark, Share2, Users } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Users, Trash2 } from 'lucide-react';
 import type { Post } from '../data/mock-data';
 import { moodConfigs } from '../data/mock-data';
+import { postsApi } from '../services/api';
 
 interface PostCardProps {
   post: Post;
   onClick?: () => void;
+  onDelete?: (postId: string) => void;
 }
 
-export function PostCard({ post, onClick }: PostCardProps) {
+export function PostCard({ post, onClick, onDelete }: PostCardProps) {
   const { author, sourceBoard, content, engagement, timestamp, mood } = post;
   const moodConfig = mood ? moodConfigs[mood] : null;
+  const [deleting, setDeleting] = React.useState(false);
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Удалить пост?')) return;
+    setDeleting(true);
+    try {
+      await postsApi.delete(post.id);
+      onDelete?.(post.id);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Ошибка при удалении');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <article 
@@ -36,7 +53,7 @@ export function PostCard({ post, onClick }: PostCardProps) {
             {sourceBoard && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/60 backdrop-blur-sm rounded-full text-sm text-blue-700 border border-blue-200/30">
                 <Users className="w-3.5 h-3.5" />
-                <span>From board: {sourceBoard.name}</span>
+                <span>Из доски: {sourceBoard.name}</span>
               </div>
             )}
             {moodConfig && (
@@ -52,6 +69,17 @@ export function PostCard({ post, onClick }: PostCardProps) {
                 <span>{moodConfig.label}</span>
               </div>
             )}
+            {/* Кнопка удаления — только для своих постов */}
+            {(post.is_own ?? false) && (
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                title="Удалить пост"
+                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -61,7 +89,7 @@ export function PostCard({ post, onClick }: PostCardProps) {
         <div className="w-full">
           <img
             src={content.imageUrl}
-            alt={content.title || 'Post image'}
+            alt={content.title || 'Изображение поста'}
             className="w-full h-auto object-cover"
           />
         </div>

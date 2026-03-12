@@ -1,9 +1,7 @@
 // ============================================================
 // API SERVICE — подключается к Flask бэкенду
-// При недоступности бэкенда автоматически использует mock-данные
 // ============================================================
 
-import { mockPosts, mockBoards, mockUserProfile } from '../data/mock-data';
 import type { Post, Board, UserProfile } from '../data/mock-data';
 
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';
@@ -120,23 +118,51 @@ export const authApi = {
 
 export const postsApi = {
   async getFeed(page = 1): Promise<Post[]> {
-    try {
-      const data = await apiFetch<{ posts: Post[] }>(`/posts/feed?page=${page}`);
-      return data.posts;
-    } catch {
-      console.warn('[API] getFeed: mock-данные');
-      return mockPosts;
-    }
+    const data = await apiFetch<{ posts: Post[] }>(`/posts/feed?page=${page}`);
+    return data.posts;
   },
 
   async create(payload: {
     content?: string;
     title?: string;
-    imageUrl?: string;
+    mood?: string;
+    visibility?: 'public' | 'private';
+    tags?: string[];
     postType?: string;
-    boardId?: string;
+    board_id?: number;
   }): Promise<Post> {
     return apiFetch('/posts', { method: 'POST', body: JSON.stringify(payload) });
+  },
+
+  async uploadImage(postId: string | number, file: File): Promise<Post> {
+    const token = tokenStorage.getAccess();
+    const form = new FormData();
+    form.append('image', file);
+    const res = await fetch(`${BASE_URL}/posts/${postId}/image`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Ошибка ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async update(postId: string | number, payload: {
+    content?: string;
+    title?: string;
+    mood?: string;
+    visibility?: 'public' | 'private';
+    tags?: string[];
+  }): Promise<Post> {
+    return apiFetch(`/posts/${postId}`, { method: 'PUT', body: JSON.stringify(payload) });
+  },
+
+  async getMyPosts(): Promise<Post[]> {
+    return apiFetch('/posts/me');
   },
 
   async delete(postId: string): Promise<void> {
@@ -144,12 +170,8 @@ export const postsApi = {
   },
 
   async getUserPosts(username: string): Promise<Post[]> {
-    try {
-      const data = await apiFetch<{ posts: Post[] }>(`/users/${username}/posts`);
-      return data.posts;
-    } catch {
-      return mockPosts.filter(p => p.author.username === username);
-    }
+    const data = await apiFetch<{ posts: Post[] }>(`/users/${username}/posts`);
+    return data.posts;
   },
 };
 
@@ -159,22 +181,13 @@ export const postsApi = {
 
 export const boardsApi = {
   async getAll(limit = 10): Promise<Board[]> {
-    try {
-      const data = await apiFetch<{ boards: Board[] }>(`/boards?limit=${limit}`);
-      return data.boards;
-    } catch {
-      console.warn('[API] getAll boards: mock-данные');
-      return mockBoards;
-    }
+    const data = await apiFetch<{ boards: Board[] }>(`/boards?limit=${limit}`);
+    return data.boards;
   },
 
   async getByUser(username: string): Promise<Board[]> {
-    try {
-      const data = await apiFetch<{ boards: Board[] }>(`/users/${username}/boards`);
-      return data.boards;
-    } catch {
-      return mockBoards.slice(0, 4);
-    }
+    const data = await apiFetch<{ boards: Board[] }>(`/users/${username}/boards`);
+    return data.boards;
   },
 
   async create(data: {
@@ -187,19 +200,11 @@ export const boardsApi = {
   },
 
   async follow(boardId: string): Promise<{ isFollowing: boolean; followers: number }> {
-    try {
-      return await apiFetch(`/boards/${boardId}/follow`, { method: 'POST' });
-    } catch {
-      return { isFollowing: true, followers: 0 };
-    }
+    return apiFetch(`/boards/${boardId}/follow`, { method: 'POST' });
   },
 
   async unfollow(boardId: string): Promise<{ isFollowing: boolean; followers: number }> {
-    try {
-      return await apiFetch(`/boards/${boardId}/unfollow`, { method: 'POST' });
-    } catch {
-      return { isFollowing: false, followers: 0 };
-    }
+    return apiFetch(`/boards/${boardId}/unfollow`, { method: 'POST' });
   },
 };
 
@@ -218,11 +223,7 @@ export interface SearchUser {
 
 export const usersApi = {
   async getProfile(username: string): Promise<UserProfile> {
-    try {
-      return await apiFetch<UserProfile>(`/users/${username}`);
-    } catch {
-      return mockUserProfile;
-    }
+    return apiFetch<UserProfile>(`/users/${username}`);
   },
 
   async search(q: string): Promise<SearchUser[]> {

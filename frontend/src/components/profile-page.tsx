@@ -1,9 +1,10 @@
 import React from 'react';
-import { Settings, Plus, Grid, List } from 'lucide-react';
+import { Settings, Plus, Grid, List, Trash2 } from 'lucide-react';
 import { PostCard } from './post-card';
 import { BoardTile } from './board-tile';
 import { EditProfileModal } from './edit-profile-modal';
 import type { UserProfile, Board, Post } from '../data/mock-data';
+import { postsApi } from '../services/api';
 import { moodConfigs } from '../data/mock-data';
 
 interface ProfilePageProps {
@@ -13,11 +14,18 @@ interface ProfilePageProps {
   onBoardClick?: (board: Board) => void;
   onCreateBoard?: () => void;
   onPostClick?: (post: Post) => void;
+  onPostDeleted?: (postId: string) => void;
 }
 
-export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoardClick, onCreateBoard, onPostClick }: ProfilePageProps) {
+export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoardClick, onCreateBoard, onPostClick, onPostDeleted }: ProfilePageProps) {
   const [viewMode, setViewMode] = React.useState<'grid' | 'feed'>('feed');
   const [showEditModal, setShowEditModal] = React.useState(false);
+  const enrichedPosts = React.useMemo(() => {
+    return profile.posts.map((post) => ({
+      ...post,
+      is_own: isOwnProfile || post.is_own || false,   // принудительно true для своего профиля
+    }));
+  }, [profile.posts, isOwnProfile]);
 
   const handleSaveProfile = (updatedProfile: Partial<UserProfile>) => {
     console.log('Saving profile:', updatedProfile);
@@ -66,15 +74,15 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                         onClick={onCreatePost}
                       >
                         <Plus className="w-4 h-4" />
-                        New Post
+                        Новый пост
                       </button>
                       <button
                         className="flex items-center gap-2 px-4 lg:px-5 py-2 lg:py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm lg:text-base"
                         onClick={onCreateBoard}
                       >
                         <Plus className="w-4 h-4" />
-                        <span className="hidden sm:inline">Create Board</span>
-                        <span className="sm:hidden">Board</span>
+                        <span className="hidden sm:inline">Создать доску</span>
+                        <span className="sm:hidden">Доска</span>
                       </button>
                       <button 
                         onClick={() => setShowEditModal(true)}
@@ -86,11 +94,11 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                   ) : (
                     <>
                       <button className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm">
-                        Follow
+                        Подписаться
                       </button>
-                      <button className="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
-                        Message
-                      </button>
+                      {/* <button className="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium">
+                        Сообщение
+                      </button> */}
                     </>
                   )}
                 </div>
@@ -107,19 +115,19 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                   <span className="text-xl lg:text-2xl font-semibold text-gray-900">
                     {(profile.stats.followers / 1000).toFixed(1)}k
                   </span>
-                  <span className="text-gray-500 ml-1.5 text-sm lg:text-base">followers</span>
+                  <span className="text-gray-500 ml-1.5 text-sm lg:text-base">подписчиков</span>
                 </div>
                 <div>
                   <span className="text-xl lg:text-2xl font-semibold text-gray-900">
                     {profile.stats.following}
                   </span>
-                  <span className="text-gray-500 ml-1.5 text-sm lg:text-base">following</span>
+                  <span className="text-gray-500 ml-1.5 text-sm lg:text-base">подписок</span>
                 </div>
                 <div>
                   <span className="text-xl lg:text-2xl font-semibold text-gray-900">
                     {profile.stats.boards}
                   </span>
-                  <span className="text-gray-500 ml-1.5 text-sm lg:text-base">boards</span>
+                  <span className="text-gray-500 ml-1.5 text-sm lg:text-base">досок</span>
                 </div>
               </div>
             </div>
@@ -132,13 +140,13 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
         <div className="max-w-5xl mx-auto px-6 py-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-900">
-              Boards
+              Доски
               <span className="text-gray-500 font-normal ml-2">
                 ({profile.boards.length})
               </span>
             </h2>
             <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
-              View All
+              Смотреть все
             </button>
           </div>
 
@@ -158,9 +166,9 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
         {/* Section Header with View Toggle */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold text-gray-900">
-            Posts
+            Посты
             <span className="text-gray-500 font-normal ml-2">
-              ({profile.posts.length})
+              ({enrichedPosts.length})
             </span>
           </h2>
 
@@ -175,7 +183,7 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
               }`}
             >
               <List className="w-4 h-4" />
-              Feed
+              Лента
             </button>
             <button
               onClick={() => setViewMode('grid')}
@@ -186,7 +194,7 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
               }`}
             >
               <Grid className="w-4 h-4" />
-              Grid
+              Сетка
             </button>
           </div>
         </div>
@@ -194,13 +202,13 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
         {/* Posts Display */}
         {viewMode === 'feed' ? (
           <div className="max-w-2xl mx-auto">
-            {profile.posts.map((post) => (
-              <PostCard key={post.id} post={post} onClick={() => onPostClick?.(post)} />
+            {enrichedPosts.map((post) => (
+              <PostCard key={post.id} post={post} onClick={() => onPostClick?.(post)} onDelete={onPostDeleted} />
             ))}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {profile.posts.map((post) => {
+            {enrichedPosts.map((post) => {
               const postMoodConfig = post.mood ? moodConfigs[post.mood] : null;
               
               return (
@@ -217,6 +225,20 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                         alt={post.content.title || 'Post'}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
+                      {(post.is_own ?? false) && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!confirm('Удалить пост?')) return;
+                            try { await postsApi.delete(post.id); onPostDeleted?.(post.id); }
+                            catch { alert('Ошибка при удалении'); }
+                          }}
+                          className="absolute top-2 right-2 z-10 p-1.5 bg-black/50 hover:bg-red-600 text-white rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                          title="Удалить пост"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                         <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
                           <div className="flex items-center gap-2 mb-2">
@@ -236,7 +258,21 @@ export function ProfilePage({ profile, isOwnProfile = true, onCreatePost, onBoar
                       </div>
                     </div>
                   ) : (
-                    <div className="aspect-square p-6 flex flex-col justify-center">
+                    <div className="aspect-square p-6 flex flex-col justify-center relative">
+                      {(post.is_own ?? false)  && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!confirm('Удалить пост?')) return;
+                            try { await postsApi.delete(post.id); onPostDeleted?.(post.id); }
+                            catch { alert('Ошибка при удалении'); }
+                          }}
+                          className="absolute top-2 right-2 p-1.5 bg-black/10 hover:bg-red-600 hover:text-white text-gray-500 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                          title="Удалить пост"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                       {postMoodConfig && (
                         <div className="text-3xl mb-3">{postMoodConfig.emoji}</div>
                       )}

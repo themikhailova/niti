@@ -1,4 +1,5 @@
 import React from 'react';
+import { postsApi } from '../services/api';
 import { X, Image as ImageIcon, Bold, Italic, List, Upload, Tag, Globe, Users, Smile } from 'lucide-react';
 import { moodConfigs, type MoodType } from '../data/mock-data';
 
@@ -19,6 +20,9 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
   const [showMoodSelector, setShowMoodSelector] = React.useState(false);
   const [uploadedImage, setUploadedImage] = React.useState<string | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [imageFile, setImageFile] = React.useState<File | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [apiError, setApiError] = React.useState('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -28,38 +32,42 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleReset = () => {
+    setTitle(''); setContent(''); setSelectedBoard('');
+    setTags([]); setTagInput(''); setVisibility('public');
+    setSelectedMood(null); setUploadedImage(null);
+    setImageFile(null); setApiError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Validation
-    if (!content.trim() && !uploadedImage) {
-      alert('Please add some content or an image to your post');
+    if (!content.trim() && !imageFile) {
+      setApiError('Добавьте текст или изображение');
       return;
     }
-
-    // In a real app, this would submit to backend
-    console.log('Creating post:', {
-      title,
-      content,
-      board: selectedBoard,
-      tags,
-      visibility,
-      mood: selectedMood,
-      image: uploadedImage,
-    });
-
-    // Reset form
-    setTitle('');
-    setContent('');
-    setSelectedBoard('');
-    setTags([]);
-    setTagInput('');
-    setVisibility('public');
-    setSelectedMood(null);
-    setUploadedImage(null);
-    
-    onSuccess();
-    onClose();
+    setApiError('');
+    setLoading(true);
+    try {
+      const vis: 'public' | 'private' = visibility === 'public' ? 'public' : 'private';
+      const post = await postsApi.create({
+        content:    content.trim() || undefined,
+        title:      title.trim() || undefined,
+        mood:       selectedMood || undefined,
+        visibility: vis,
+        tags,
+        postType:   imageFile ? (content.trim() ? 'mixed' : 'image') : 'text',
+      });
+      if (imageFile) {
+        await postsApi.uploadImage(post.id, imageFile);
+      }
+      handleReset();
+      onSuccess();
+      onClose();
+    } catch (err: unknown) {
+      setApiError(err instanceof Error ? err.message : 'Ошибка при создании поста');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -74,13 +82,12 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
+      if (file.size > 5 * 1024 * 1024) { setApiError('Изображение превышает 5 МБ'); return; }
+      setImageFile(file);
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setUploadedImage(e.target?.result as string);
-      };
+      reader.onload = (ev) => { setUploadedImage(ev.target?.result as string); };
       reader.readAsDataURL(file);
     }
   };
@@ -88,10 +95,10 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) { setApiError('Изображение превышает 5 МБ'); return; }
+      setImageFile(file);
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setUploadedImage(e.target?.result as string);
-      };
+      reader.onload = (ev) => { setUploadedImage(ev.target?.result as string); };
       reader.readAsDataURL(file);
     }
   };
@@ -132,7 +139,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
         >
           {/* Header */}
           <div className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
-            <h2 className="text-2xl font-semibold text-gray-900">Create New Post</h2>
+            <h2 className="text-2xl font-semibold text-gray-900">Новый пост</h2>
             <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -153,7 +160,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                       type="text"
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
-                      placeholder="Post title (optional)"
+                      placeholder="Заголовок (необязательно)"
                       className="w-full px-0 py-2 text-2xl font-semibold text-gray-900 placeholder-gray-400 border-0 border-b-2 border-gray-200 focus:border-blue-500 focus:outline-none transition-colors"
                     />
                   </div>
@@ -164,7 +171,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                       ref={textareaRef}
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
-                      placeholder="What's on your mind? Share your thoughts, story or idea..."
+                      placeholder="Что у вас на уме? Поделитесь мыслью, историей или идеей..."
                       rows={10}
                       maxLength={maxChars}
                       className="w-full px-4 py-3 text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
@@ -173,7 +180,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                       <div className="flex items-center gap-2">
                         {/* Simple formatting hints */}
                         <span className="text-xs text-gray-500">
-                          Tip: Use **bold** or *italic* for emphasis
+                          Совет: используйте **жирный** или *курсив* для акцента
                         </span>
                       </div>
                       <span className={`text-sm ${charCount > maxChars * 0.9 ? 'text-orange-500' : 'text-gray-400'}`}>
@@ -212,7 +219,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                       >
                         <ImageIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                         <p className="text-gray-600 mb-2">
-                          Drag & drop an image here, or click to upload
+                          Перетащите изображение или нажмите для загрузки
                         </p>
                         <button
                           type="button"
@@ -220,7 +227,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                           className="inline-flex items-center gap-2 px-4 py-2 text-blue-600 hover:text-blue-700 font-medium transition-colors"
                         >
                           <Upload className="w-4 h-4" />
-                          Choose File
+                          Выбрать файл
                         </button>
                         <input
                           ref={fileInputRef}
@@ -239,14 +246,14 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                   {/* Board Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Add to Board
+                      Добавить в доску
                     </label>
                     <select
                       value={selectedBoard}
                       onChange={(e) => setSelectedBoard(e.target.value)}
                       className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
                     >
-                      <option value="">Select a board...</option>
+                      <option value="">Выберите доску...</option>
                       <option value="b1">🎨 Minimalist Aesthetics</option>
                       <option value="b2">🏞️ Natural Landscapes</option>
                       <option value="b3">🌿 Botanical Studies</option>
@@ -259,14 +266,14 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        Set the Mood
+                        Настроение поста
                       </label>
                       <button
                         type="button"
                         onClick={() => setShowMoodSelector(!showMoodSelector)}
                         className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                       >
-                        {showMoodSelector ? 'Hide' : 'Choose'}
+                        {showMoodSelector ? 'Скрыть' : 'Выбрать'}
                       </button>
                     </div>
 
@@ -330,7 +337,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                   {/* Tags Input */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Tags
+                      Теги
                     </label>
                     <div className="space-y-2">
                       {tags.length > 0 && (
@@ -358,7 +365,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                         value={tagInput}
                         onChange={(e) => setTagInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Type tag and press Enter..."
+                        placeholder="Введите тег и нажмите Enter..."
                         className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
@@ -367,7 +374,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                   {/* Visibility Toggle */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Visibility
+                      Видимость
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       <button
@@ -380,7 +387,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                         }`}
                       >
                         <Globe className="w-4 h-4" />
-                        <span className="font-medium text-sm">Public</span>
+                        <span className="font-medium text-sm">Публично</span>
                       </button>
                       <button
                         type="button"
@@ -392,7 +399,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                         }`}
                       >
                         <Users className="w-4 h-4" />
-                        <span className="font-medium text-sm">Followers</span>
+                        <span className="font-medium text-sm">Подписчикам</span>
                       </button>
                     </div>
                   </div>
@@ -403,19 +410,17 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
 
           {/* Footer */}
           <div className="flex items-center justify-between px-8 py-5 border-t border-gray-100 bg-gray-50">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-6 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={!content.trim() && !uploadedImage}
-              className="px-8 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
-            >
-              Publish
+            <div className="flex items-center gap-4">
+              <button type="button" onClick={onClose} disabled={loading}
+                className="px-6 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50">
+                Отмена
+              </button>
+              {apiError && <p className="text-sm text-red-500">{apiError}</p>}
+            </div>
+            <button onClick={handleSubmit}
+              disabled={loading || (!content.trim() && !imageFile)}
+              className="px-8 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+              {loading ? 'Публикация...' : 'Опубликовать'}
             </button>
           </div>
         </div>

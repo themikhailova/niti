@@ -1,9 +1,22 @@
 from flask import request, jsonify, g
+from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 from . import api_bp
 from models import db, Post, User, Board
 from utils import get_avatar_url, save_avatar, delete_avatar
 from .boards import board_to_dict
 from .posts import post_to_dict
+
+
+def _get_current_user():
+    """JWT или сессия."""
+    try:
+        verify_jwt_in_request(optional=True)
+        identity = get_jwt_identity()
+        if identity:
+            return db.session.get(User, int(identity))
+    except Exception:
+        pass
+    return g.current_user
 
 
 def user_profile_to_dict(user, current_user=None):
@@ -69,30 +82,33 @@ def get_user_posts(username):
 
 @api_bp.route('/users/<username>/follow', methods=['POST'])
 def follow_user(username):
-    if not g.current_user:
+    current_user = _get_current_user()
+    if not current_user:
         return jsonify({'error': 'Требуется авторизация'}), 401
     user = User.query.filter_by(username=username).first_or_404()
-    g.current_user.follow(user)
+    current_user.follow(user)
     db.session.commit()
     return jsonify({'ok': True, 'followers': user.followers_count})
 
 
 @api_bp.route('/users/<username>/unfollow', methods=['POST'])
 def unfollow_user(username):
-    if not g.current_user:
+    current_user = _get_current_user()
+    if not current_user:
         return jsonify({'error': 'Требуется авторизация'}), 401
     user = User.query.filter_by(username=username).first_or_404()
-    g.current_user.unfollow(user)
+    current_user.unfollow(user)
     db.session.commit()
     return jsonify({'ok': True, 'followers': user.followers_count})
 
 
 @api_bp.route('/users/me', methods=['PATCH'])
 def update_me():
-    if not g.current_user:
+    current_user = _get_current_user()
+    if not current_user:
         return jsonify({'error': 'Требуется авторизация'}), 401
 
-    user = g.current_user
+    user = current_user
 
     if 'avatar' in request.files:
         file = request.files['avatar']

@@ -22,7 +22,7 @@ export function BoardTile({ board, onClick }: BoardTileProps) {
           
           {/* Post Count Badge */}
           <div className="absolute bottom-2 right-2 px-2 py-1 bg-white/90 backdrop-blur-sm rounded text-xs font-medium text-gray-700">
-            {board.postCount} posts
+            {board.postCount} постов
           </div>
         </div>
         
@@ -33,7 +33,7 @@ export function BoardTile({ board, onClick }: BoardTileProps) {
           </h3>
           <div className="flex items-center gap-1 text-xs text-gray-500">
             <Users className="w-3 h-3" />
-            <span>{(board.followers / 1000).toFixed(1)}k followers</span>
+            <span>{(board.followers).toFixed(1)} подписчиков</span>
           </div>
         </div>
       </div>

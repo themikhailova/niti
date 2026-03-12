@@ -486,12 +486,6 @@ export function EditPostModal({ isOpen, post, onClose, onSuccess }: EditPostModa
                 </button>
                 <div className="flex gap-3">
                   <button
-                    type="button"
-                    className="px-6 py-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
-                  >
-                    Delete Post
-                  </button>
-                  <button
                     type="submit"
                     className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
                   >

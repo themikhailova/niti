@@ -1,41 +1,50 @@
 """
 api/posts.py — роуты постов.
 
-Сохранены все существующие эндпоинты (feed, create, get, delete).
-Добавлены новые по ТЗ: PUT update, GET /me, POST /<id>/image.
-post_to_dict расширен новыми полями (mood, visibility, tags, image_preview_url)
-— обратная совместимость с boards.py и users.py сохранена.
+Эндпоинты:
+  POST   /api/posts/              Создать пост
+  GET    /api/posts/feed          Лента (JWT или сессия, или гость)
+  GET    /api/posts/me            Мои посты (JWT обязателен)
+  GET    /api/posts/<id>          Получить один пост (без авторизации)
+  PUT    /api/posts/<id>          Обновить пост (JWT, только владелец)
+  DELETE /api/posts/<id>          Удалить пост  (JWT, только владелец)
+  POST   /api/posts/<id>/image    Загрузить/сменить изображение (JWT, только владелец)
 """
 import os
 import time
+from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import or_
 from flask import request, jsonify, g, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
+
 from pydantic import BaseModel, field_validator, ValidationError
 
 from . import api_bp
-from models import db, Post, Board, Tag, MoodEnum, VisibilityEnum, post_tags
+from models import db, Post, Board, Tag, User, MoodEnum, VisibilityEnum
 from utils import get_avatar_url, RecommendationEngine
 
 
 # ── Pydantic-схемы ────────────────────────────────────────────────────────────
 
 class CreatePostSchema(BaseModel):
-    title:      Optional[str]           = None
-    content:    str
-    mood:       Optional[MoodEnum]      = None
-    visibility: VisibilityEnum          = VisibilityEnum.public
-    tags:       list[str]               = []
-    board_id:   Optional[int]           = None
-    # обратная совместимость со старым фронтом
-    postType:   str                     = Post.TYPE_TEXT
-    imageUrl:   Optional[str]           = None
+    title:      Optional[str]   = None
+    content:    Optional[str]   = None
+    mood:       Optional[str]   = None      # валидируем вручную → 400, не 422
+    visibility: str             = 'public'  # 'public' | 'private'
+    tags:       list[str]       = []
+    board_id:   Optional[int]   = None
+    postType:   str             = Post.TYPE_TEXT
+    imageUrl:   Optional[str]   = None      # прямая ссылка (редко используется)
 
     @field_validator('content')
     @classmethod
-    def content_not_empty(cls, v: str) -> str:
-        if not v.strip():
+    def content_not_empty(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
             raise ValueError('Текст поста не может быть пустым')
         if len(v) > 10_000:
             raise ValueError('Пост слишком длинный (максимум 10 000 символов)')
@@ -48,23 +57,71 @@ class CreatePostSchema(BaseModel):
             raise ValueError('Максимум 10 тегов')
         return [t.strip().lower() for t in v if t.strip()]
 
+    @field_validator('visibility')
+    @classmethod
+    def visibility_valid(cls, v: str) -> str:
+        if v not in ('public', 'private'):
+            raise ValueError("visibility должен быть 'public' или 'private'")
+        return v
+
+    def get_mood(self) -> Optional[MoodEnum]:
+        """Вернуть MoodEnum или None. ValueError при неверном значении."""
+        if not self.mood:
+            return None
+        try:
+            return MoodEnum(self.mood)
+        except ValueError:
+            valid = ', '.join(m.value for m in MoodEnum)
+            raise ValueError(f'Неверный mood. Допустимые значения: {valid}')
+
+    def get_visibility(self) -> VisibilityEnum:
+        return VisibilityEnum(self.visibility)
+
 
 class UpdatePostSchema(BaseModel):
-    title:      Optional[str]           = None
-    content:    Optional[str]           = None
-    mood:       Optional[MoodEnum]      = None
-    visibility: Optional[VisibilityEnum]= None
-    tags:       Optional[list[str]]     = None
+    title:      Optional[str]   = None
+    content:    Optional[str]   = None
+    mood:       Optional[str]   = None
+    visibility: Optional[str]   = None
+    tags:       Optional[list[str]] = None
 
     @field_validator('content')
     @classmethod
     def content_not_empty(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and not v.strip():
-            raise ValueError('Текст поста не может быть пустым')
+        if v is not None:
+            v = v.strip()
+            if not v:
+                raise ValueError('Текст поста не может быть пустым')
         return v
+
+    @field_validator('visibility')
+    @classmethod
+    def visibility_valid(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ('public', 'private'):
+            raise ValueError("visibility должен быть 'public' или 'private'")
+        return v
+
+    def get_mood(self) -> Optional[MoodEnum]:
+        if not self.mood:
+            return None
+        try:
+            return MoodEnum(self.mood)
+        except ValueError:
+            valid = ', '.join(m.value for m in MoodEnum)
+            raise ValueError(f'Неверный mood. Допустимые значения: {valid}')
+
+    def get_visibility(self) -> Optional[VisibilityEnum]:
+        return VisibilityEnum(self.visibility) if self.visibility else None
 
 
 # ── Вспомогательные функции ───────────────────────────────────────────────────
+
+def _pydantic_errors(e: ValidationError) -> list[dict]:
+    return [
+        {'field': '.'.join(str(loc) for loc in err['loc']), 'message': str(err['msg'])}
+        for err in e.errors()
+    ]
+
 
 def _resolve_tags(names: list[str]) -> list[Tag]:
     """Найти существующие или создать новые теги по именам."""
@@ -80,70 +137,81 @@ def _resolve_tags(names: list[str]) -> list[Tag]:
 
 def _save_post_image(file, post_id: int) -> tuple[Optional[str], Optional[str]]:
     """
-    Сохранить оригинал + превью. Возвращает (image_url, preview_url) — пути
-    относительно static/, пригодные для url_for('static', filename=...).
+    Сохранить оригинал + превью.
+    Возвращает (relative_url, preview_relative_url) — пути относительно static/.
+    При ошибке формата возвращает (None, None).
     """
     from PIL import Image
+
     ALLOWED = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if '.' not in (file.filename or ''):
+        return None, None
+    ext = file.filename.rsplit('.', 1)[-1].lower()
     if ext not in ALLOWED:
         return None, None
 
-    timestamp = int(time.time())
-    fname   = f'post_{post_id}_{timestamp}.{ext}'
-    p_fname = f'post_{post_id}_{timestamp}_preview.{ext}'
+    timestamp  = int(time.time())
+    fname      = f'post_{post_id}_{timestamp}.{ext}'
+    p_fname    = f'post_{post_id}_{timestamp}_preview.{ext}'
 
-    upload_dir = os.path.join(current_app.static_folder, 'uploads', 'posts')
+    upload_dir   = os.path.join(current_app.static_folder, 'uploads', 'posts')
     os.makedirs(upload_dir, exist_ok=True)
 
     orig_path    = os.path.join(upload_dir, fname)
     preview_path = os.path.join(upload_dir, p_fname)
+
     file.save(orig_path)
 
-    # Превью 400×400
-    preview_url = None
+    # Превью 400×400 без exif
+    preview_url: Optional[str] = None
     try:
         img = Image.open(orig_path)
         if img.mode not in ('RGB', 'RGBA'):
             img = img.convert('RGB')
-        img.thumbnail((400, 400), Image.Resampling.LANCZOS)
-        img.save(preview_path, quality=85, optimize=True)
+        # Убираем exif
+        clean = Image.new(img.mode, img.size)
+        clean.putdata(list(img.getdata()))
+        clean.thumbnail((400, 400), Image.Resampling.LANCZOS)
+        clean.save(preview_path, quality=85, optimize=True)
         preview_url = f'uploads/posts/{p_fname}'
-    except Exception:
-        pass
+    except Exception as exc:
+        current_app.logger.warning(f'preview generation failed: {exc}')
 
     return f'uploads/posts/{fname}', preview_url
 
 
 def _delete_file(relative_url: Optional[str]) -> None:
+    """Удалить файл по относительному пути от static/."""
     if not relative_url:
         return
     try:
         path = os.path.join(current_app.static_folder, relative_url)
         if os.path.isfile(path):
             os.remove(path)
-    except OSError:
-        pass
+    except OSError as exc:
+        current_app.logger.warning(f'file delete failed ({relative_url}): {exc}')
 
 
-def post_to_dict(post: Post) -> dict:
+def post_to_dict(post: Post, viewer_id: Optional[int] = None) -> dict:
     """
-    Основной сериализатор. Расширен новыми полями (mood, visibility, tags,
-    image_preview_url), но старые ключи сохранены — boards.py и users.py
-    продолжают работать без изменений.
+    Основной сериализатор поста.
+
+    viewer_id — id текущего пользователя (для is_own).
+    Старые поля сохранены для совместимости с boards.py и users.py.
     """
     author = post.user
 
-    content = {'type': post.post_type}
+    # nested content object (совместимость с post-card.tsx)
+    content: dict = {'type': post.post_type}
     if post.title:
         content['title'] = post.title
     if post.image_url:
-        content['imageUrl'] = post.image_url
+        content['imageUrl']        = f'/static/{post.image_url}'
     if post.image_preview_url:
-        content['imagePreviewUrl'] = post.image_preview_url
+        content['imagePreviewUrl'] = f'/static/{post.image_preview_url}'
     if post.content:
         if post.post_type == Post.TYPE_TEXT:
-            content['text'] = post.content
+            content['text']    = post.content
         else:
             content['caption'] = post.content
 
@@ -152,62 +220,106 @@ def post_to_dict(post: Post) -> dict:
         source_board = {'id': str(post.board_id), 'name': post.board.name}
 
     return {
-        # ── старые поля (не меняем) ───────────────────────────────────
+        # ── идентификация ──────────────────────────────────────────────────
         'id':          str(post.id),
+        # ── автор ─────────────────────────────────────────────────────────
         'author': {
             'id':       str(author.id),
             'name':     author.username,
             'username': f'@{author.username}',
             'avatar':   get_avatar_url(author),
         },
+        # ── контент ───────────────────────────────────────────────────────
         'sourceBoard': source_board,
         'content':     content,
+        # ── engagement (заглушки, расширяется позже) ───────────────────────
         'engagement':  {'reactions': 0, 'comments': 0, 'saves': 0},
+        # ── временны́е метки ───────────────────────────────────────────────
         'timestamp':   post.created_at.strftime('%d.%m.%Y %H:%M'),
-        # ── новые поля (ТЗ) ───────────────────────────────────────────
+        'created_at':  post.created_at.isoformat(),
+        'updated_at':  post.updated_at.isoformat() if post.updated_at else None,
+        # ── mood / visibility / tags ───────────────────────────────────────
         'mood':        post.mood.value if post.mood else None,
         'visibility':  post.visibility.value if post.visibility else 'public',
         'tags':        [t.name for t in post.tags],
-        'updated_at':  post.updated_at.isoformat() if post.updated_at else None,
+        # ── права ─────────────────────────────────────────────────────────
+        'is_own':      (viewer_id is not None and post.user_id == viewer_id),
     }
 
 
-# ── Существующие эндпоинты (не трогаем логику, только дополняем) ─────────────
+# ── Утилита: текущий пользователь (JWT или сессия) ────────────────────────────
+
+def _get_current_user() -> Optional[User]:
+    """
+    JWT optional → сессионный g.current_user → None.
+    Позволяет старому (сессии) и новому (JWT) фронту работать одновременно.
+    """
+    try:
+        verify_jwt_in_request(optional=True)
+        identity = get_jwt_identity()
+        if identity:
+            return db.session.get(User, int(identity))
+    except Exception:
+        pass
+    return g.current_user
+
+
+# ── Эндпоинты ─────────────────────────────────────────────────────────────────
 
 @api_bp.route('/posts/feed', methods=['GET'])
 def feed():
-    page    = request.args.get('page', 1, type=int)
+    """
+    GET /api/posts/feed?page=1&mode=balanced
+    Лента постов.
+    Авторизованным — посты подписок + ВСЕ публичные посты (чтобы новый пользователь видел контент).
+    Гостям — только публичные.
+    """
+    page     = request.args.get('page', 1, type=int)
     per_page = current_app.config.get('POSTS_PER_PAGE', 20)
 
-    if g.current_user:
-        followed_ids = [u.id for u in g.current_user.following]
-        followed_ids.append(g.current_user.id)
-        all_posts = Post.query.filter(
-            Post.user_id.in_(followed_ids)
+    current_user = _get_current_user()
+    viewer_id    = current_user.id if current_user else None
+
+    if current_user:
+        followed_ids = [u.id for u in current_user.following]
+        followed_ids.append(current_user.id)
+
+        # ←←← ГЛАВНОЕ ИСПРАВЛЕНИЕ
+        posts = Post.query.filter(
+            or_(
+                Post.user_id.in_(followed_ids),
+                Post.visibility == VisibilityEnum.public
+            )
         ).order_by(Post.created_at.desc()).all()
+
         mode  = request.args.get('mode', 'balanced')
-        posts = RecommendationEngine.get_recommended_posts(g.current_user, all_posts, mode)
+        posts = RecommendationEngine.get_recommended_posts(current_user, posts, mode)
     else:
-        posts = Post.query.order_by(Post.created_at.desc()).limit(per_page * page).all()
+        # Гости видят только публичные (как было)
+        posts = (
+            Post.query
+            .filter(Post.visibility == VisibilityEnum.public)
+            .order_by(Post.created_at.desc())
+            .all()
+        )
 
     start      = (page - 1) * per_page
     page_posts = posts[start:start + per_page]
 
     return jsonify({
-        'posts':    [post_to_dict(p) for p in page_posts],
+        'posts':    [post_to_dict(p, viewer_id) for p in page_posts],
         'page':     page,
         'has_more': len(posts) > start + per_page,
+        'total':    len(posts),
     })
 
 
 @api_bp.route('/posts', methods=['POST'])
 def create_post():
     """
-    Создать пост. Принимает JSON с новыми полями (mood, visibility, tags)
-    И старый формат (postType, imageUrl, boardId) — оба работают.
-    Требует JWT-токен (Authorization: Bearer <token>).
+    POST /api/posts/
+    Создать пост. Принимает JWT или сессию.
     """
-    # Поддержка обоих способов авторизации: JWT и сессия
     current_user = _get_current_user()
     if not current_user:
         return jsonify({'error': 'Требуется авторизация'}), 401
@@ -215,45 +327,136 @@ def create_post():
     try:
         body = CreatePostSchema.model_validate(request.get_json(force=True) or {})
     except ValidationError as e:
-        return jsonify({'errors': e.errors()}), 422
+        errs = _pydantic_errors(e)
+        return jsonify({'error': errs[0]['message'], 'errors': errs}), 422
 
-    board = None
+    # mood валидируется отдельно → 400 (по ТЗ, не 422)
+    try:
+        mood = body.get_mood()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    # Валидация контента
+    post_type = body.postType
+    valid, err = Post.validate_content(body.content, post_type, body.imageUrl)
+    if not valid:
+        # image/mixed без контента — разрешаем (изображение придёт отдельным запросом)
+        if post_type == Post.TYPE_TEXT and not body.content:
+            return jsonify({'error': 'Для текстового поста необходим текст'}), 422
+
+    # Доска
+    board: Optional[Board] = None
     if body.board_id:
         board = db.session.get(Board, body.board_id)
         if not board:
             return jsonify({'error': 'Доска не найдена'}), 404
 
     post = Post(
-        post_type  = body.postType,
-        content    = body.content.strip(),
-        title      = body.title,
+        post_type  = post_type,
+        content    = body.content.strip() if body.content else None,
+        title      = body.title.strip() if body.title else None,
         image_url  = body.imageUrl,
-        mood       = body.mood,
-        visibility = body.visibility,
+        mood       = mood,
+        visibility = body.get_visibility(),
         user_id    = current_user.id,
         board_id   = board.id if board else None,
     )
     post.tags = _resolve_tags(body.tags)
 
-    current_user.posts_count += 1
+    # Денормализованные счётчики
+    current_user.posts_count = (current_user.posts_count or 0) + 1
     if board:
-        board.post_count += 1
+        board.post_count = (board.post_count or 0) + 1
 
     db.session.add(post)
     db.session.commit()
-    return jsonify(post_to_dict(post)), 201
+
+    return jsonify(post_to_dict(post, current_user.id)), 201
+
+
+@api_bp.route('/posts/me', methods=['GET'])
+@jwt_required()
+def my_posts():
+    """
+    GET /api/posts/me
+    Список постов текущего пользователя. JWT обязателен.
+    """
+    user_id = int(get_jwt_identity())
+    posts   = (
+        Post.query
+        .filter_by(user_id=user_id)
+        .order_by(Post.created_at.desc())
+        .all()
+    )
+    return jsonify([post_to_dict(p, user_id) for p in posts]), 200
 
 
 @api_bp.route('/posts/<int:post_id>', methods=['GET'])
-def get_post(post_id):
+def get_post(post_id: int):
+    """
+    GET /api/posts/<id>
+    Получить один пост. Авторизация не требуется.
+    """
     post = db.session.get(Post, post_id)
     if not post:
         return jsonify({'error': 'Пост не найден'}), 404
-    return jsonify(post_to_dict(post))
+
+    current_user = _get_current_user()
+    viewer_id    = current_user.id if current_user else None
+
+    return jsonify(post_to_dict(post, viewer_id)), 200
+
+
+@api_bp.route('/posts/<int:post_id>', methods=['PUT'])
+@jwt_required()
+def update_post(post_id: int):
+    """
+    PUT /api/posts/<id>
+    Обновить пост. JWT обязателен. Только владелец.
+    """
+    user_id = int(get_jwt_identity())
+
+    try:
+        body = UpdatePostSchema.model_validate(request.get_json(force=True) or {})
+    except ValidationError as e:
+        errs = _pydantic_errors(e)
+        return jsonify({'error': errs[0]['message'], 'errors': errs}), 422
+
+    try:
+        mood = body.get_mood()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    post = db.session.get(Post, post_id)
+    if not post:
+        return jsonify({'error': 'Пост не найден'}), 404
+    if post.user_id != user_id:
+        return jsonify({'error': 'Нет доступа'}), 403
+
+    if body.title      is not None:
+        post.title      = body.title.strip()
+    if body.content    is not None:
+        post.content    = body.content.strip()
+    if mood            is not None:
+        post.mood       = mood
+    if body.visibility is not None:
+        post.visibility = body.get_visibility()
+    if body.tags       is not None:
+        cleaned = [t.strip().lower() for t in body.tags if t.strip()]
+        post.tags = _resolve_tags(cleaned)
+
+    post.updated_at = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify(post_to_dict(post, user_id)), 200
 
 
 @api_bp.route('/posts/<int:post_id>', methods=['DELETE'])
-def delete_post(post_id):
+def delete_post(post_id: int):
+    """
+    DELETE /api/posts/<id>
+    Удалить пост. JWT или сессия. Только владелец.
+    """
     current_user = _get_current_user()
     if not current_user:
         return jsonify({'error': 'Требуется авторизация'}), 401
@@ -264,64 +467,30 @@ def delete_post(post_id):
     if post.user_id != current_user.id:
         return jsonify({'error': 'Нет доступа'}), 403
 
-    current_user.posts_count = max(0, current_user.posts_count - 1)
+    # Денормализованные счётчики
+    current_user.posts_count = max(0, (current_user.posts_count or 1) - 1)
     if post.board_id and post.board:
-        post.board.post_count = max(0, post.board.post_count - 1)
+        post.board.post_count = max(0, (post.board.post_count or 1) - 1)
 
-    # Удалить файлы
+    # Удалить файлы изображений
     _delete_file(post.image_url)
     _delete_file(post.image_preview_url)
 
     db.session.delete(post)
     db.session.commit()
-    return jsonify({'ok': True})
 
-
-# ── Новые эндпоинты по ТЗ ────────────────────────────────────────────────────
-
-@api_bp.route('/posts/me', methods=['GET'])
-@jwt_required()
-def my_posts():
-    """Список постов текущего пользователя (только с JWT)."""
-    user_id = int(get_jwt_identity())
-    posts   = Post.query.filter_by(user_id=user_id)\
-                        .order_by(Post.created_at.desc()).all()
-    return jsonify([post_to_dict(p) for p in posts]), 200
-
-
-@api_bp.route('/posts/<int:post_id>', methods=['PUT'])
-@jwt_required()
-def update_post(post_id):
-    """Обновить пост — только владелец."""
-    user_id = int(get_jwt_identity())
-
-    try:
-        body = UpdatePostSchema.model_validate(request.get_json(force=True) or {})
-    except ValidationError as e:
-        return jsonify({'errors': e.errors()}), 422
-
-    post = db.session.get(Post, post_id)
-    if not post:
-        return jsonify({'error': 'Пост не найден'}), 404
-    if post.user_id != user_id:
-        return jsonify({'error': 'Нет доступа'}), 403
-
-    if body.title      is not None: post.title      = body.title
-    if body.content    is not None: post.content    = body.content
-    if body.mood       is not None: post.mood       = body.mood
-    if body.visibility is not None: post.visibility = body.visibility
-    if body.tags       is not None: post.tags       = _resolve_tags(
-        [t.strip().lower() for t in body.tags if t.strip()]
-    )
-
-    db.session.commit()
-    return jsonify(post_to_dict(post)), 200
+    return jsonify({'ok': True}), 200
 
 
 @api_bp.route('/posts/<int:post_id>/image', methods=['POST'])
 @jwt_required()
-def upload_post_image(post_id):
-    """Загрузить / сменить изображение поста — только владелец."""
+def upload_post_image(post_id: int):
+    """
+    POST /api/posts/<id>/image
+    Загрузить или сменить изображение поста. JWT обязателен. Только владелец.
+    Максимальный размер файла: 5 МБ (обрабатывается Flask MAX_CONTENT_LENGTH,
+    но здесь добавлена ручная проверка для читаемого сообщения об ошибке).
+    """
     user_id = int(get_jwt_identity())
 
     post = db.session.get(Post, post_id)
@@ -332,18 +501,19 @@ def upload_post_image(post_id):
 
     if 'image' not in request.files:
         return jsonify({'error': 'Поле image обязательно'}), 400
+
     file = request.files['image']
-    if not file.filename:
+    if not file or not file.filename:
         return jsonify({'error': 'Пустое имя файла'}), 400
 
-    # Проверка размера (≤ 5 MB) до обработки
+    # Проверка размера (≤ 5 МБ)
     file.seek(0, 2)
     size = file.tell()
     file.seek(0)
     if size > 5 * 1024 * 1024:
-        return jsonify({'error': 'Изображение превышает 5 MB'}), 413
+        return jsonify({'error': 'Изображение превышает 5 МБ'}), 413
 
-    # Удалить старые файлы
+    # Удалить старые файлы перед сохранением новых
     _delete_file(post.image_url)
     _delete_file(post.image_preview_url)
 
@@ -353,29 +523,10 @@ def upload_post_image(post_id):
 
     post.image_url         = image_url
     post.image_preview_url = preview_url
+    # Уточняем тип поста
     post.post_type = Post.TYPE_MIXED if post.content else Post.TYPE_IMAGE
+    post.updated_at = datetime.utcnow()
 
     db.session.commit()
-    return jsonify(post_to_dict(post)), 200
 
-
-# ── Утилита: получить пользователя из JWT или сессии ─────────────────────────
-
-def _get_current_user():
-    """
-    Пробуем JWT сначала, затем — сессионный g.current_user.
-    Это позволяет старому фронту (сессии) и новому (JWT) работать одновременно.
-    """
-    from flask_jwt_extended import verify_jwt_in_request
-    try:
-        verify_jwt_in_request(optional=True)
-        from flask_jwt_extended import get_jwt_identity
-        identity = get_jwt_identity()
-        if identity:
-            return db.session.get(
-                __import__('models', fromlist=['User']).User,
-                int(identity)
-            )
-    except Exception:
-        pass
-    return g.current_user
+    return jsonify(post_to_dict(post, user_id)), 200

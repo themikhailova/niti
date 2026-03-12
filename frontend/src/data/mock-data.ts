@@ -1,5 +1,6 @@
 // Types
-export type MoodType = 'inspired' | 'curious' | 'peaceful' | 'playful' | 'thoughtful' | 'energetic';
+// Значения строго совпадают с MoodEnum на бэкенде (models.py)
+export type MoodType = 'joyful' | 'calm' | 'reflective' | 'energetic' | 'melancholic' | 'inspired';
 
 export interface MoodConfig {
   label: string;
@@ -47,7 +48,9 @@ export interface Post {
     saves: number;
   };
   timestamp: string;
+  created_at?: string;
   mood?: MoodType;
+  is_own?: boolean;
 }
 
 export interface UserProfile {
@@ -65,62 +68,62 @@ export interface UserProfile {
   posts: Post[];
 }
 
-// Mood Configurations
+// Mood Configurations — синхронизированы с MoodEnum бэкенда
 export const moodConfigs: Record<MoodType, MoodConfig> = {
-  inspired: {
-    label: 'Inspired',
-    emoji: '✨',
-    color: '#8B5CF6',
-    lightBg: 'bg-purple-50',
-    borderColor: 'border-purple-500',
-    pastelBg: '#FAF5FF',
-    description: 'Feeling creative and motivated'
+  joyful: {
+    label: 'Радость',
+    emoji: '😊',
+    color: '#F59E0B',
+    lightBg: 'bg-amber-50',
+    borderColor: 'border-amber-500',
+    pastelBg: '#FFFBEB',
+    description: 'Радость и позитив'
   },
-  curious: {
-    label: 'Curious',
-    emoji: '🔍',
-    color: '#3B82F6',
-    lightBg: 'bg-blue-50',
-    borderColor: 'border-blue-500',
-    pastelBg: '#EFF6FF',
-    description: 'Exploring and discovering'
-  },
-  peaceful: {
-    label: 'Peaceful',
+  calm: {
+    label: 'Спокойствие',
     emoji: '🌿',
     color: '#10B981',
     lightBg: 'bg-green-50',
     borderColor: 'border-green-500',
     pastelBg: '#F0FDF4',
-    description: 'Calm and centered'
+    description: 'Умиротворение и покой'
   },
-  playful: {
-    label: 'Playful',
-    emoji: '🎨',
-    color: '#F59E0B',
-    lightBg: 'bg-amber-50',
-    borderColor: 'border-amber-500',
-    pastelBg: '#FFFBEB',
-    description: 'Fun and lighthearted'
-  },
-  thoughtful: {
-    label: 'Thoughtful',
+  reflective: {
+    label: 'Рефлексия',
     emoji: '💭',
     color: '#6366F1',
     lightBg: 'bg-indigo-50',
     borderColor: 'border-indigo-500',
     pastelBg: '#EEF2FF',
-    description: 'Deep in contemplation'
+    description: 'Размышление и самоанализ'
   },
   energetic: {
-    label: 'Energetic',
+    label: 'Энергия',
     emoji: '⚡',
     color: '#EF4444',
     lightBg: 'bg-red-50',
     borderColor: 'border-red-500',
     pastelBg: '#FEF2F2',
-    description: 'Full of energy and excitement'
-  }
+    description: 'Подъём и активность'
+  },
+  melancholic: {
+    label: 'Меланхолия',
+    emoji: '🌧️',
+    color: '#64748B',
+    lightBg: 'bg-slate-50',
+    borderColor: 'border-slate-400',
+    pastelBg: '#F8FAFC',
+    description: 'Задумчивость и грусть'
+  },
+  inspired: {
+    label: 'Вдохновение',
+    emoji: '✨',
+    color: '#8B5CF6',
+    lightBg: 'bg-purple-50',
+    borderColor: 'border-purple-500',
+    pastelBg: '#FAF5FF',
+    description: 'Творческий подъём'
+  },
 };
 
 // Mock Boards Data
@@ -240,7 +243,7 @@ export const mockPosts: Post[] = [
       saves: 156
     },
     timestamp: '2 hours ago',
-    mood: 'peaceful'
+    mood: 'calm'
   },
   {
     id: 'p2',
@@ -286,7 +289,7 @@ export const mockPosts: Post[] = [
       saves: 198
     },
     timestamp: '8 hours ago',
-    mood: 'thoughtful'
+    mood: 'reflective'
   },
   {
     id: 'p4',
@@ -311,7 +314,7 @@ export const mockPosts: Post[] = [
       saves: 289
     },
     timestamp: '12 hours ago',
-    mood: 'curious'
+    mood: 'reflective'
   },
   {
     id: 'p5',
@@ -336,7 +339,7 @@ export const mockPosts: Post[] = [
       saves: 134
     },
     timestamp: '1 day ago',
-    mood: 'playful'
+    mood: 'joyful'
   },
   {
     id: 'p6',
@@ -386,7 +389,7 @@ export const mockPosts: Post[] = [
       saves: 234
     },
     timestamp: '2 days ago',
-    mood: 'peaceful'
+    mood: 'calm'
   }
 ];
 

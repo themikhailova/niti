@@ -1,7 +1,7 @@
 import React from 'react';
-import { X, Heart, Bookmark, Share2, MessageCircle, MoreHorizontal, ArrowLeft, ChevronDown, Edit } from 'lucide-react';
-import { EditPostModal } from './EditPostModal';
+import { X, Heart, Bookmark, Share2, MessageCircle, MoreHorizontal, ArrowLeft, ChevronDown, Trash2 } from 'lucide-react';
 import type { Post, Board, MoodType } from '../data/mock-data';
+import { postsApi } from '../services/api';
 import { moodConfigs } from '../data/mock-data';
 
 interface Comment {
@@ -22,15 +22,29 @@ interface PostDetailViewProps {
   onClose: () => void;
   onBoardClick?: (board: Board | { id: string; name: string }) => void;
   relatedPosts?: Post[];
+  onDelete?: (postId: string) => void;
 }
 
-export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] }: PostDetailViewProps) {
+export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [], onDelete }: PostDetailViewProps) {
   const [isLiked, setIsLiked] = React.useState(false);
   const [isSaved, setIsSaved] = React.useState(false);
   const [commentText, setCommentText] = React.useState('');
   const [commentSort, setCommentSort] = React.useState<'top' | 'newest'>('top');
   const [replyingTo, setReplyingTo] = React.useState<string | null>(null);
-  const [showEditPost, setShowEditPost] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+
+  const handleDelete = async () => {
+    if (!confirm('Удалить пост?')) return;
+    setDeleting(true);
+    try {
+      await postsApi.delete(post.id);
+      onDelete?.(post.id);
+      onClose();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Ошибка при удалении');
+      setDeleting(false);
+    }
+  };
 
   const postMoodConfig = post.mood ? moodConfigs[post.mood] : null;
 
@@ -122,7 +136,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
               onClick={() => setReplyingTo(comment.id)}
               className="hover:text-blue-600 transition-colors"
             >
-              Reply
+              Ответить
             </button>
           </div>
           
@@ -150,17 +164,23 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
               className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
-              <span className="font-medium">Back</span>
+              <span className="font-medium">Назад</span>
             </button>
             
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowEditPost(true)}
-                className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <Edit className="w-5 h-5" />
-                <span className="font-medium hidden sm:inline">Edit Post</span>
-              </button>
+              {(post.is_own ?? false) && (
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-4 py-2 text-gray-500 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors disabled:opacity-40"
+                  title="Удалить пост"
+                >
+                  <Trash2 className="w-5 h-5" />
+                  <span className="font-medium hidden sm:inline">
+                    {deleting ? 'Удаление...' : 'Удалить'}
+                  </span>
+                </button>
+              )}
               <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <MoreHorizontal className="w-5 h-5 text-gray-600" />
               </button>
@@ -252,9 +272,11 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                       <p className="text-sm text-gray-500">{post.author.username}</p>
                     </div>
                   </div>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm">
-                    Follow
-                  </button>
+                  {!(post.is_own ?? false) && (
+                    <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm">
+                      Подписаться
+                    </button>
+                  )}
                 </div>
 
                 {/* Board Link */}
@@ -274,7 +296,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                       <p className="text-sm font-medium text-gray-900 truncate">
                         {post.sourceBoard.name}
                       </p>
-                      <p className="text-xs text-gray-500">View board</p>
+                      <p className="text-xs text-gray-500">Посмотреть доску</p>
                     </div>
                   </button>
                 )}
@@ -332,7 +354,6 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                       <p className="text-sm font-medium">
                         {post.engagement.reactions + (isLiked ? 1 : 0)}
                       </p>
-                      <p className="text-xs">Likes</p>
                     </div>
                   </button>
 
@@ -351,7 +372,6 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                       <p className="text-sm font-medium">
                         {post.engagement.saves + (isSaved ? 1 : 0)}
                       </p>
-                      <p className="text-xs">Saves</p>
                     </div>
                   </button>
 
@@ -359,7 +379,6 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                     <Share2 className="w-6 h-6" />
                     <div className="text-center">
                       <p className="text-sm font-medium">{post.engagement.shares}</p>
-                      <p className="text-xs">Share</p>
                     </div>
                   </button>
                 </div>
@@ -371,7 +390,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                   <div className="flex items-center gap-2">
                     <MessageCircle className="w-5 h-5 text-gray-600" />
                     <h3 className="font-semibold text-gray-900">
-                      Comments ({post.engagement.comments})
+                      Комментарии ({post.engagement.comments})
                     </h3>
                   </div>
                   
@@ -382,8 +401,8 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                       onChange={(e) => setCommentSort(e.target.value as 'top' | 'newest')}
                       className="px-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                     >
-                      <option value="top">Top</option>
-                      <option value="newest">Newest</option>
+                      <option value="top">Топ</option>
+                      <option value="newest">Недавние</option>
                     </select>
                   </div>
                 </div>
@@ -411,7 +430,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                             onClick={() => setReplyingTo(null)}
                             className="text-sm text-gray-500 hover:text-gray-700"
                           >
-                            Cancel reply
+                            Отменить
                           </button>
                         )}
                         <button
@@ -419,7 +438,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                           disabled={!commentText.trim()}
                           className="ml-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Post
+                          Отправить
                         </button>
                       </div>
                     </div>
@@ -438,9 +457,9 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
               {relatedPosts.length > 0 && (
                 <div className="bg-white rounded-xl shadow-sm border border-blue-100/30 p-6">
                   <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <span>More like this</span>
+                    <span>Больше похожего</span>
                     <span className="text-xs text-gray-500 font-normal">
-                      From {post.sourceBoard?.name || 'this board'}
+                      Из {post.sourceBoard?.name || 'этой доски'}
                     </span>
                   </h3>
                   <div className="grid grid-cols-2 gap-3 mb-4">
@@ -483,7 +502,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                   
                   {/* Related Boards Section */}
                   <div className="pt-4 border-t border-gray-100">
-                    <h4 className="font-medium text-gray-900 text-sm mb-3">Related Boards</h4>
+                    <h4 className="font-medium text-gray-900 text-sm mb-3">Похожие доски</h4>
                     <div className="space-y-2">
                       {/* Mock related boards - in real app would come from props */}
                       {[
@@ -502,10 +521,10 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
                             </div>
                             <div className="text-left">
                               <p className="text-sm font-medium text-gray-900">{board.name}</p>
-                              <p className="text-xs text-gray-500">{(board.followers / 1000).toFixed(1)}k followers</p>
+                              <p className="text-xs text-gray-500">{(board.followers / 1000).toFixed(1)}k подписчиков</p>
                             </div>
                           </div>
-                          <span className="text-blue-600 text-sm font-medium">View</span>
+                          <span className="text-blue-600 text-sm font-medium">Посмотреть</span>
                         </button>
                       ))}
                     </div>
@@ -517,16 +536,6 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [] 
         </div>
       </div>
 
-      {/* Edit Post Modal */}
-      <EditPostModal
-        post={post}
-        isOpen={showEditPost}
-        onClose={() => setShowEditPost(false)}
-        onSuccess={() => {
-          console.log('Post updated successfully');
-          setShowEditPost(false);
-        }}
-      />
     </div>
   );
 }

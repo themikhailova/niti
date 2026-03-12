@@ -44,12 +44,12 @@ export function BoardPreview({ board, onFollow, onClick }: BoardPreviewProps) {
               {board.isFollowing ? (
                 <>
                   <Check className="w-4 h-4" />
-                  Following
+                  Подписан
                 </>
               ) : (
                 <>
                   <Plus className="w-4 h-4" />
-                  Follow
+                  Подписаться
                 </>
               )}
             </button>
@@ -83,12 +83,12 @@ export function BoardPreview({ board, onFollow, onClick }: BoardPreviewProps) {
         <div className="flex items-center justify-between text-sm text-gray-500/80 pt-3 border-t border-blue-100/50">
           <div className="flex items-center gap-1">
             <Users className="w-3.5 h-3.5" />
-            <span>{(board.followers / 1000).toFixed(1)}k</span>
+            <span>{(board.followers).toFixed(1)}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span>{board.postCount} posts</span>
+            <span>{board.postCount} постов</span>
             <span className="text-blue-300/60">•</span>
-            <span>{board.collaborators} collaborators</span>
+            <span>{board.collaborators} соавторов</span>
           </div>
         </div>
       </div>
