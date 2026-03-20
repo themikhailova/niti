@@ -1,3 +1,12 @@
+"""
+models.py — SQLAlchemy модели.
+
+Изменения по сравнению с предыдущей версией:
+  + ReactionTypeEnum
+  + REACTION_EMOJI_MAP
+  + Comment
+  + Reaction
+"""
 from datetime import datetime
 import enum
 from flask_sqlalchemy import SQLAlchemy
@@ -47,7 +56,6 @@ class User(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(30), unique=True, nullable=False, index=True)
-    # email добавлен для JWT-аутентификации; nullable=True — обратная совместимость с существующими строками
     email = db.Column(db.String(255), unique=True, nullable=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     avatar = db.Column(db.String(255), nullable=True, default='default_avatar.png')
@@ -57,12 +65,10 @@ class User(db.Model):
 
     interests = db.Column(db.JSON, nullable=True, default=list)
 
-    # Денормализованные счётчики
     followers_count = db.Column(db.Integer, default=0, nullable=False)
     following_count = db.Column(db.Integer, default=0, nullable=False)
-    posts_count = db.Column(db.Integer, default=0, nullable=False)
+    posts_count     = db.Column(db.Integer, default=0, nullable=False)
 
-    # Relationships
     posts = db.relationship('Post', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     boards = db.relationship('Board', backref='creator', lazy='dynamic',
                              foreign_keys='Board.creator_id', cascade='all, delete-orphan')
@@ -140,7 +146,6 @@ class User(db.Model):
         return True, None
 
     def to_public_dict(self) -> dict:
-        """Публичные данные — для author в постах и профиле."""
         from utils import get_avatar_url
         return {
             'id': self.id,
@@ -154,7 +159,6 @@ class User(db.Model):
         }
 
     def to_private_dict(self) -> dict:
-        """Приватные данные — только для владельца аккаунта."""
         d = self.to_public_dict()
         d['email'] = self.email
         return d
@@ -171,29 +175,26 @@ class Board(db.Model):
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text, nullable=True, default='')
     cover_image = db.Column(db.String(255), nullable=True)
-    tags = db.Column(db.JSON, nullable=True, default=list)       # ["дизайн", "минимализм"]
+    tags = db.Column(db.JSON, nullable=True, default=list)
     is_public = db.Column(db.Boolean, default=True, nullable=False)
 
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Денормализованные счётчики
     followers_count = db.Column(db.Integer, default=0, nullable=False)
-    post_count = db.Column(db.Integer, default=0, nullable=False)
+    post_count      = db.Column(db.Integer, default=0, nullable=False)
 
-    # Коллабораторы
     collaborators = db.relationship('User', secondary=board_collaborators,
                                     backref=db.backref('collaborating_boards', lazy='dynamic'),
                                     lazy='dynamic')
 
-    # Посты в доске
     posts = db.relationship('Post', backref='board', lazy='dynamic',
                             foreign_keys='Post.board_id', cascade='all, delete-orphan')
 
     @property
     def collaborators_count(self):
-        return self.collaborators.count() + 1  # +1 создатель
+        return self.collaborators.count() + 1
 
     @staticmethod
     def validate_name(name):
@@ -208,17 +209,39 @@ class Board(db.Model):
 
 
 class MoodEnum(str, enum.Enum):
-    joyful     = 'joyful'
-    calm       = 'calm'
-    reflective = 'reflective'
-    energetic  = 'energetic'
+    joyful      = 'joyful'
+    calm        = 'calm'
+    reflective  = 'reflective'
+    energetic   = 'energetic'
     melancholic = 'melancholic'
-    inspired   = 'inspired'
+    inspired    = 'inspired'
 
 
 class VisibilityEnum(str, enum.Enum):
     public  = 'public'
     private = 'private'
+
+
+# ── Типы реакций ──────────────────────────────────────────────────────────────
+
+class ReactionTypeEnum(str, enum.Enum):
+    like  = 'like'   # ❤️
+    love  = 'love'   # 😍
+    laugh = 'laugh'  # 😂
+    sad   = 'sad'    # 😢
+    wow   = 'wow'    # 😮
+    fire  = 'fire'   # 🔥
+
+
+# Маппинг тип → эмодзи (используется в сериализации API-ответов)
+REACTION_EMOJI_MAP: dict[str, str] = {
+    'like':  '❤️',
+    'love':  '😍',
+    'laugh': '😂',
+    'sad':   '😢',
+    'wow':   '😮',
+    'fire':  '🔥',
+}
 
 
 class Tag(db.Model):
@@ -236,7 +259,6 @@ class Post(db.Model):
     """Модель поста"""
     __tablename__ = 'post'
 
-    # Типы постов (обратная совместимость)
     TYPE_TEXT  = 'text'
     TYPE_IMAGE = 'image'
     TYPE_MIXED = 'mixed'
@@ -246,22 +268,19 @@ class Post(db.Model):
     content   = db.Column(db.Text, nullable=True)
     title     = db.Column(db.String(200), nullable=True)
 
-    # Изображения
     image_url         = db.Column(db.String(500), nullable=True)
-    image_preview_url = db.Column(db.String(500), nullable=True)  # новое: превью
+    image_preview_url = db.Column(db.String(500), nullable=True)
 
-    # Настроение и видимость
-    mood       = db.Column(db.Enum(MoodEnum), nullable=True)                          # новое
-    visibility = db.Column(db.Enum(VisibilityEnum), nullable=False,                   # новое
+    mood       = db.Column(db.Enum(MoodEnum), nullable=True)
+    visibility = db.Column(db.Enum(VisibilityEnum), nullable=False,
                            default=VisibilityEnum.public)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    user_id  = db.Column(db.Integer, db.ForeignKey('user.id'),   nullable=False, index=True)
-    board_id = db.Column(db.Integer, db.ForeignKey('board.id'),  nullable=True,  index=True)
+    user_id  = db.Column(db.Integer, db.ForeignKey('user.id'),  nullable=False, index=True)
+    board_id = db.Column(db.Integer, db.ForeignKey('board.id'), nullable=True,  index=True)
 
-    # Теги (many-to-many)
     tags = db.relationship('Tag', secondary=post_tags, lazy='subquery',
                            backref=db.backref('posts', lazy=True))
 
@@ -279,3 +298,92 @@ class Post(db.Model):
 
     def __repr__(self):
         return f'<Post {self.id} [{self.post_type}] by {self.user_id}>'
+
+
+# ── Комментарии ───────────────────────────────────────────────────────────────
+
+class Comment(db.Model):
+    """Комментарий к посту."""
+    __tablename__ = 'comment'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    content    = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    post_id = db.Column(
+        db.Integer,
+        db.ForeignKey('post.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('user.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+
+    post = db.relationship(
+        'Post',
+        backref=db.backref('comments', lazy='dynamic', cascade='all, delete-orphan'),
+    )
+    user = db.relationship(
+        'User',
+        backref=db.backref('comments', lazy='dynamic'),
+    )
+
+    def __repr__(self) -> str:
+        return f'<Comment {self.id} by user={self.user_id} on post={self.post_id}>'
+
+
+# ── Реакции ───────────────────────────────────────────────────────────────────
+
+class Reaction(db.Model):
+    """
+    Реакция пользователя на пост.
+
+    UniqueConstraint (post_id, user_id, reaction_type) гарантирует:
+    один пользователь не может поставить одну и ту же реакцию дважды.
+    Toggle-логика реализована на уровне ReactionService.
+    """
+    __tablename__ = 'reaction'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    reaction_type = db.Column(db.Enum(ReactionTypeEnum), nullable=False)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    post_id = db.Column(
+        db.Integer,
+        db.ForeignKey('post.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('user.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+
+    post = db.relationship(
+        'Post',
+        backref=db.backref('reactions', lazy='dynamic', cascade='all, delete-orphan'),
+    )
+    user = db.relationship(
+        'User',
+        backref=db.backref('reactions', lazy='dynamic'),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            'post_id', 'user_id', 'reaction_type',
+            name='uq_reaction_post_user_type',
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f'<Reaction {self.reaction_type.value} '
+            f'by user={self.user_id} on post={self.post_id}>'
+        )

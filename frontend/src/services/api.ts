@@ -66,7 +66,6 @@ interface AuthResponse {
 }
 
 export const authApi = {
-  /** Вход по email ИЛИ username */
   async login(data: { identifier: string; password: string }): Promise<AuthUser> {
     const res = await apiFetch<AuthResponse>('/auth/login', {
       method: 'POST',
@@ -76,7 +75,6 @@ export const authApi = {
     return res.user;
   },
 
-  /** Регистрация: email + username + пароль */
   async register(data: { email: string; username: string; password: string }): Promise<AuthUser> {
     const res = await apiFetch<AuthResponse>('/auth/register', {
       method: 'POST',
@@ -86,7 +84,6 @@ export const authApi = {
     return res.user;
   },
 
-  /** Восстановление сессии из localStorage-токена при старте приложения */
   async restoreSession(): Promise<AuthUser | null> {
     if (!tokenStorage.getAccess()) return null;
     try {
@@ -97,7 +94,6 @@ export const authApi = {
     }
   },
 
-  /** Выход: инвалидирует токен на бэкенде + очищает localStorage */
   async logout(): Promise<void> {
     try {
       await apiFetch('/auth/logout', { method: 'POST' });
@@ -106,7 +102,6 @@ export const authApi = {
     }
   },
 
-  /** @deprecated используй restoreSession() */
   async me(): Promise<AuthUser | null> {
     return this.restoreSession();
   },
@@ -172,6 +167,106 @@ export const postsApi = {
   async getUserPosts(username: string): Promise<Post[]> {
     const data = await apiFetch<{ posts: Post[] }>(`/users/${username}/posts`);
     return data.posts;
+  },
+};
+
+// ============================================================
+// REACTIONS
+// ============================================================
+
+export type ReactionType = 'like' | 'love' | 'laugh' | 'sad' | 'wow' | 'fire';
+
+export interface ReactionCount {
+  type: ReactionType;
+  emoji: string;
+  count: number;
+}
+
+export interface ToggleReactionResponse {
+  added: boolean;
+  type: ReactionType;
+  reactions: { type: ReactionType; count: number }[];
+}
+
+export const reactionsApi = {
+  /**
+   * Toggle реакции на пост. Если реакция уже стоит — снимает её.
+   * Требует авторизации (JWT).
+   */
+  async toggle(postId: string | number, type: ReactionType): Promise<ToggleReactionResponse> {
+    return apiFetch<ToggleReactionResponse>(`/posts/${postId}/react`, {
+      method: 'POST',
+      body: JSON.stringify({ type }),
+    });
+  },
+
+  /**
+   * Получить счётчики всех реакций для поста. Публичный эндпоинт.
+   */
+  async getCounts(postId: string | number): Promise<ReactionCount[]> {
+    const data = await apiFetch<{ reactions: ReactionCount[] }>(`/posts/${postId}/reactions`);
+    return data.reactions;
+  },
+};
+
+// ============================================================
+// COMMENTS
+// ============================================================
+
+export interface Comment {
+  id: number;
+  content: string;
+  created_at: string;
+  updated_at: string | null;
+  post_id: number;
+  is_own: boolean;
+  author: {
+    id: string;
+    username: string;
+    avatar: string;
+  };
+}
+
+export interface CommentsMeta {
+  page: number;
+  per_page: number;
+  total: number;
+  has_more: boolean;
+}
+
+export const commentsApi = {
+  /**
+   * Получить список комментариев к посту (с пагинацией).
+   */
+  async list(postId: string | number, page = 1, perPage = 20): Promise<{ comments: Comment[]; meta: CommentsMeta }> {
+    return apiFetch(`/posts/${postId}/comments?page=${page}&per_page=${perPage}`);
+  },
+
+  /**
+   * Добавить комментарий к посту. Требует авторизации.
+   */
+  async create(postId: string | number, content: string): Promise<Comment> {
+    return apiFetch(`/posts/${postId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  /**
+   * Редактировать свой комментарий. Требует авторизации.
+   */
+  async update(commentId: number, content: string): Promise<Comment> {
+    return apiFetch(`/comments/${commentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  },
+
+  /**
+   * Удалить свой комментарий. Требует авторизации.
+   */
+  async delete(commentId: number): Promise<void> {
+    return apiFetch(`/comments/${commentId}`, { method: 'DELETE' });
   },
 };
 

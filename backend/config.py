@@ -30,7 +30,7 @@ class Config:
     
     # Загрузка файлов
     UPLOAD_FOLDER = os.path.join(basedir, 'static', 'uploads', 'avatars')
-    MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 4 * 1024 * 1024))  # 4MB
+    MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH', 5 * 1024 * 1024))  # 4MB
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     
     # Безопасность

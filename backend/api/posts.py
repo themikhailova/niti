@@ -22,7 +22,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_req
 from pydantic import BaseModel, field_validator, ValidationError
 
 from . import api_bp
-from models import db, Post, Board, Tag, User, MoodEnum, VisibilityEnum
+from models import db, Post, Board, Tag, User, MoodEnum, VisibilityEnum, Comment, Reaction
 from utils import get_avatar_url, RecommendationEngine
 
 
@@ -191,6 +191,15 @@ def _delete_file(relative_url: Optional[str]) -> None:
     except OSError as exc:
         current_app.logger.warning(f'file delete failed ({relative_url}): {exc}')
 
+def _engagement(post) -> dict:
+    """Реальные счётчики engagement из БД."""
+    total_reactions = post.reactions.count()
+    total_comments  = post.comments.count()
+    return {
+        'reactions': total_reactions,
+        'comments':  total_comments,
+        'saves':     0,   # расширить при добавлении функции сохранений
+    }
 
 def post_to_dict(post: Post, viewer_id: Optional[int] = None) -> dict:
     """
@@ -233,7 +242,7 @@ def post_to_dict(post: Post, viewer_id: Optional[int] = None) -> dict:
         'sourceBoard': source_board,
         'content':     content,
         # ── engagement (заглушки, расширяется позже) ───────────────────────
-        'engagement':  {'reactions': 0, 'comments': 0, 'saves': 0},
+        'engagement': _engagement(post),
         # ── временны́е метки ───────────────────────────────────────────────
         'timestamp':   post.created_at.strftime('%d.%m.%Y %H:%M'),
         'created_at':  post.created_at.isoformat(),
