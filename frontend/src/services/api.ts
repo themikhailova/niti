@@ -189,10 +189,6 @@ export interface ToggleReactionResponse {
 }
 
 export const reactionsApi = {
-  /**
-   * Toggle реакции на пост. Если реакция уже стоит — снимает её.
-   * Требует авторизации (JWT).
-   */
   async toggle(postId: string | number, type: ReactionType): Promise<ToggleReactionResponse> {
     return apiFetch<ToggleReactionResponse>(`/posts/${postId}/react`, {
       method: 'POST',
@@ -200,9 +196,6 @@ export const reactionsApi = {
     });
   },
 
-  /**
-   * Получить счётчики всех реакций для поста. Публичный эндпоинт.
-   */
   async getCounts(postId: string | number): Promise<ReactionCount[]> {
     const data = await apiFetch<{ reactions: ReactionCount[] }>(`/posts/${postId}/reactions`);
     return data.reactions;
@@ -235,16 +228,10 @@ export interface CommentsMeta {
 }
 
 export const commentsApi = {
-  /**
-   * Получить список комментариев к посту (с пагинацией).
-   */
   async list(postId: string | number, page = 1, perPage = 20): Promise<{ comments: Comment[]; meta: CommentsMeta }> {
     return apiFetch(`/posts/${postId}/comments?page=${page}&per_page=${perPage}`);
   },
 
-  /**
-   * Добавить комментарий к посту. Требует авторизации.
-   */
   async create(postId: string | number, content: string): Promise<Comment> {
     return apiFetch(`/posts/${postId}/comments`, {
       method: 'POST',
@@ -252,9 +239,6 @@ export const commentsApi = {
     });
   },
 
-  /**
-   * Редактировать свой комментарий. Требует авторизации.
-   */
   async update(commentId: number, content: string): Promise<Comment> {
     return apiFetch(`/comments/${commentId}`, {
       method: 'PUT',
@@ -262,9 +246,6 @@ export const commentsApi = {
     });
   },
 
-  /**
-   * Удалить свой комментарий. Требует авторизации.
-   */
   async delete(commentId: number): Promise<void> {
     return apiFetch(`/comments/${commentId}`, { method: 'DELETE' });
   },
@@ -304,7 +285,7 @@ export const boardsApi = {
 };
 
 // ============================================================
-// USERS / SEARCH
+// USERS / SEARCH / PROFILE
 // ============================================================
 
 export interface SearchUser {
@@ -316,9 +297,79 @@ export interface SearchUser {
   isFollowing: boolean;
 }
 
+export interface UpdateProfilePayload {
+  username?: string;
+  bio?: string;
+}
+
 export const usersApi = {
+  /** Публичный профиль по username */
   async getProfile(username: string): Promise<UserProfile> {
     return apiFetch<UserProfile>(`/users/${username}`);
+  },
+
+  /** Публичный профиль по числовому ID */
+  async getProfileById(userId: number | string): Promise<UserProfile> {
+    return apiFetch<UserProfile>(`/users/${userId}`);
+  },
+
+  /**
+   * GET /api/users/me — полный профиль текущего пользователя.
+   * Требует JWT-токена.
+   */
+  async getMe(): Promise<AuthUser> {
+    return apiFetch<AuthUser>('/users/me');
+  },
+
+  /**
+   * PUT /api/users/me — обновление username и/или bio.
+   * Требует JWT-токена.
+   */
+  async updateProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
+    return apiFetch<AuthUser>('/users/me', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * POST /api/users/me/avatar — загрузка / смена аватара (multipart).
+   * Требует JWT-токена. Ограничение: 5 МБ, jpg/jpeg/png/gif/webp.
+   */
+  async uploadAvatar(file: File): Promise<{ ok: boolean; avatar_url: string }> {
+    const token = tokenStorage.getAccess();
+    const form = new FormData();
+    form.append('avatar', file);
+    const res = await fetch(`${BASE_URL}/users/me/avatar`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Ошибка ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /** DELETE /api/users/me/avatar — сброс аватара на дефолтный */
+  async removeAvatar(): Promise<{ ok: boolean; avatar_url: string }> {
+    return apiFetch('/users/me/avatar', { method: 'DELETE' });
+  },
+
+  async getFollowers(
+    username: string,
+    page = 1
+  ): Promise<{ users: SearchUser[]; total: number; has_more: boolean }> {
+    return apiFetch(`/users/${username}/followers?page=${page}&per_page=20`);
+  },
+
+  async getFollowing(
+    username: string,
+    page = 1
+  ): Promise<{ users: SearchUser[]; total: number; has_more: boolean }> {
+    return apiFetch(`/users/${username}/following?page=${page}&per_page=20`);
   },
 
   async search(q: string): Promise<SearchUser[]> {
@@ -331,21 +382,11 @@ export const usersApi = {
     }
   },
 
-  async follow(username: string): Promise<void> {
+  async follow(username: string): Promise<{ ok: boolean; isFollowing: boolean; followers: number }> {
     return apiFetch(`/users/${username}/follow`, { method: 'POST' });
   },
 
-  async unfollow(username: string): Promise<void> {
+  async unfollow(username: string): Promise<{ ok: boolean; isFollowing: boolean; followers: number }> {
     return apiFetch(`/users/${username}/unfollow`, { method: 'POST' });
-  },
-
-  async updateProfile(data: FormData): Promise<AuthUser> {
-    const res = await fetch(`${BASE_URL}/users/me`, {
-      method: 'PATCH',
-      credentials: 'include',
-      body: data,
-    });
-    if (!res.ok) throw new Error('Ошибка обновления профиля');
-    return res.json();
   },
 };

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Avatar } from './Avatar';
 import Masonry from 'react-responsive-masonry';
 import { ArrowLeft, Users, Plus, Check, Share2, MoreVertical, Grid, List, Filter, Search, Settings } from 'lucide-react';
 import { PostCard } from './post-card';
@@ -158,10 +159,12 @@ export function BoardView({ board, posts, onBack, onFollowToggle, onPostClick }:
               <div className="space-y-3">
                 {collaborators.slice(0, 5).map((collaborator) => (
                   <div key={collaborator.id} className="flex items-center gap-3">
-                    <img
+                    <Avatar
                       src={collaborator.avatar}
                       alt={collaborator.name}
-                      className="w-10 h-10 rounded-full ring-2 ring-blue-50"
+                      username={collaborator.name}
+                      size={40}
+                      className="ring-2 ring-blue-50"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">

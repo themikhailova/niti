@@ -1,7 +1,8 @@
 import React from 'react';
-import { X, Heart, Bookmark, Share2, MessageCircle, MoreHorizontal, ArrowLeft, Trash2 } from 'lucide-react';
+import { X, Heart, Bookmark, Share2, MessageCircle, ArrowLeft, Trash2, Loader2 } from 'lucide-react';
 import type { Post, Board, MoodType } from '../data/mock-data';
-import { postsApi, reactionsApi, commentsApi, tokenStorage } from '../services/api';
+import { postsApi, reactionsApi, commentsApi, tokenStorage, usersApi } from '../services/api';
+import { Avatar } from './Avatar';
 import type { Comment } from '../services/api';
 import { moodConfigs } from '../data/mock-data';
 
@@ -9,30 +10,73 @@ interface PostDetailViewProps {
   post: Post;
   onClose: () => void;
   onBoardClick?: (board: Board | { id: string; name: string }) => void;
+  onAuthorClick?: (username: string) => void;
   relatedPosts?: Post[];
   onDelete?: (postId: string) => void;
+  isAuthenticated?: boolean;
+  currentUsername?: string;
+  onRequireAuth?: () => void;
 }
 
-export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [], onDelete }: PostDetailViewProps) {
+export function PostDetailView({
+  post,
+  onClose,
+  onBoardClick,
+  onAuthorClick,
+  relatedPosts = [],
+  onDelete,
+  isAuthenticated = false,
+  currentUsername,
+  onRequireAuth,
+}: PostDetailViewProps) {
   const [isSaved, setIsSaved] = React.useState(false);
   const [commentText, setCommentText] = React.useState('');
   const [commentSort, setCommentSort] = React.useState<'top' | 'newest'>('top');
   const [deleting, setDeleting] = React.useState(false);
 
-  // ── Лайк (реальный API) ───────────────────────────────────────────────────
+  // ── Лайк ─────────────────────────────────────────────────────────────────
   const [likeCount, setLikeCount] = React.useState(post.engagement.reactions ?? 0);
   const [liked, setLiked] = React.useState(false);
   const [likePending, setLikePending] = React.useState(false);
 
-  // ── Комментарии (реальный API) ────────────────────────────────────────────
+  // ── Комментарии ───────────────────────────────────────────────────────────
   const [comments, setComments] = React.useState<Comment[]>([]);
   const [commentCount, setCommentCount] = React.useState(post.engagement.comments ?? 0);
   const [commentLoading, setCommentLoading] = React.useState(false);
   const [commentPage, setCommentPage] = React.useState(1);
   const [hasMore, setHasMore] = React.useState(false);
 
-  const isLoggedIn = !!tokenStorage.getAccess();
-  const postMoodConfig = post.mood ? moodConfigs[post.mood] : null;
+  // ── Follow ────────────────────────────────────────────────────────────────
+  const authorUsername = post.author.username.startsWith('@')
+    ? post.author.username.slice(1)
+    : post.author.username;
+  const isOwnPost = currentUsername === authorUsername || (post.is_own ?? false);
+
+  const [isFollowing, setIsFollowing] = React.useState(false);
+  const [followLoading, setFollowLoading] = React.useState(false);
+
+  // Загружаем актуальный isFollowing из БД
+  React.useEffect(() => {
+    if (!isAuthenticated || isOwnPost) return;
+    usersApi.getProfile(authorUsername)
+      .then((profile) => setIsFollowing(profile.isFollowing ?? false))
+      .catch(() => {});
+  }, [authorUsername, isAuthenticated, isOwnPost]);
+
+  const handleFollowToggle = async () => {
+    if (!isAuthenticated) { onRequireAuth?.(); return; }
+    setFollowLoading(true);
+    try {
+      if (isFollowing) {
+        await usersApi.unfollow(authorUsername);
+        setIsFollowing(false);
+      } else {
+        await usersApi.follow(authorUsername);
+        setIsFollowing(true);
+      }
+    } catch { /* ignore */ }
+    finally { setFollowLoading(false); }
+  };
 
   // Загружаем реальный счётчик лайков
   React.useEffect(() => {
@@ -67,7 +111,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
   };
 
   const handleLike = async () => {
-    if (!isLoggedIn) { alert('Войдите, чтобы ставить лайки'); return; }
+    if (!isAuthenticated) { onRequireAuth?.(); return; }
     if (likePending) return;
     setLikePending(true);
     const wasLiked = liked;
@@ -90,7 +134,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
     e.preventDefault();
     const trimmed = commentText.trim();
     if (!trimmed) return;
-    if (!isLoggedIn) { alert('Войдите, чтобы оставить комментарий'); return; }
+    if (!isAuthenticated) { onRequireAuth?.(); return; }
     setCommentLoading(true);
     try {
       const newComment = await commentsApi.create(post.id, trimmed);
@@ -138,12 +182,15 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
     return comments;
   }, [comments, commentSort]);
 
+  const postMoodConfig = post.mood ? moodConfigs[post.mood] : null;
+
   const CommentItem = ({ comment }: { comment: Comment }) => (
     <div className="flex gap-3 group">
-      <img
+      <Avatar
         src={comment.author.avatar}
-        alt={comment.author.username}
-        className="w-10 h-10 rounded-full flex-shrink-0 ring-2 ring-blue-50"
+        username={comment.author.username}
+        size={40}
+        className="ring-2 ring-blue-50"
       />
       <div className="flex-1 min-w-0">
         <div className="bg-gray-50 rounded-lg p-3 mb-1">
@@ -189,7 +236,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
             </button>
 
             <div className="flex items-center gap-2">
-              {(post.is_own ?? false) && (
+              {isOwnPost && (
                 <button
                   onClick={handleDelete}
                   disabled={deleting}
@@ -254,26 +301,45 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
           {/* Right Column */}
           <div className="lg:col-span-5">
             <div className="lg:sticky lg:top-24 space-y-6">
+
               {/* Author Block */}
               <div className="bg-white rounded-xl shadow-sm border border-blue-100/30 p-6">
                 <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <img
+                  <button
+                    onClick={() => onAuthorClick?.(authorUsername)}
+                    className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+                  >
+                    <Avatar
                       src={post.author.avatar}
                       alt={post.author.name}
-                      className="w-12 h-12 rounded-full ring-2 ring-blue-100"
+                      username={post.author.name}
+                      size={48}
+                      className="ring-2 ring-blue-100"
                     />
                     <div>
                       <p className="font-semibold text-gray-900">{post.author.name}</p>
                       <p className="text-sm text-gray-500">{post.author.username}</p>
                     </div>
-                  </div>
-                  {!(post.is_own ?? false) && (
-                    <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm">
-                      Подписаться
+                  </button>
+
+                  {/* Follow / Unfollow — только для чужих постов */}
+                  {!isOwnPost && (
+                    <button
+                      onClick={handleFollowToggle}
+                      disabled={followLoading}
+                      className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50 ${
+                        isFollowing
+                          ? 'bg-gray-100 border border-gray-300 text-gray-700 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                      }`}
+                    >
+                      {followLoading
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : isFollowing ? 'Отписаться' : 'Подписаться'}
                     </button>
                   )}
                 </div>
+
                 {post.sourceBoard && (
                   <button
                     onClick={() => onBoardClick?.(post.sourceBoard!)}
@@ -315,7 +381,6 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
               {/* Engagement Actions */}
               <div className="bg-white rounded-xl shadow-sm border border-blue-100/30 p-6">
                 <div className="grid grid-cols-3 gap-3">
-                  {/* Лайк — реальный API */}
                   <button
                     onClick={handleLike}
                     disabled={likePending}
@@ -350,7 +415,7 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
                 </div>
               </div>
 
-              {/* Comments Section — реальный API */}
+              {/* Comments Section */}
               <div className="bg-white rounded-xl shadow-sm border border-blue-100/30 p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
@@ -376,15 +441,16 @@ export function PostDetailView({ post, onClose, onBoardClick, relatedPosts = [],
                       <textarea
                         value={commentText}
                         onChange={(e) => setCommentText(e.target.value)}
-                        placeholder={isLoggedIn ? 'Написать комментарий...' : 'Войдите, чтобы оставить комментарий'}
+                        onClick={() => { if (!isAuthenticated) onRequireAuth?.(); }}
+                        placeholder={isAuthenticated ? 'Написать комментарий...' : 'Войдите, чтобы оставить комментарий'}
                         rows={3}
-                        disabled={!isLoggedIn || commentLoading}
+                        readOnly={!isAuthenticated}
                         className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none disabled:bg-gray-50 disabled:cursor-not-allowed"
                       />
                       <div className="flex justify-end mt-2">
                         <button
                           type="submit"
-                          disabled={!commentText.trim() || !isLoggedIn || commentLoading}
+                          disabled={!commentText.trim() || !isAuthenticated || commentLoading}
                           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {commentLoading ? 'Отправка...' : 'Отправить'}

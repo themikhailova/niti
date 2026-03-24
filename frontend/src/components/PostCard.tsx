@@ -1,4 +1,5 @@
 import React from 'react';
+import { Avatar } from './Avatar';
 import { Heart, MessageCircle, Bookmark, Share2, Users, Trash2 } from 'lucide-react';
 import type { Post } from '../data/mock-data';
 import { moodConfigs } from '../data/mock-data';
@@ -143,10 +144,12 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
       <div className="p-6 pb-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <img
+            <Avatar
               src={author.avatar}
               alt={author.name}
-              className="w-10 h-10 rounded-full ring-2 ring-white/80"
+              username={author.name}
+              size={40}
+              className="ring-2 ring-white/80"
             />
             <div>
               <p className="font-medium text-gray-900">{author.name}</p>
@@ -281,10 +284,11 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
               <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
                 {comments.map((c) => (
                   <div key={c.id} className="flex gap-2.5 group">
-                    <img
+                    <Avatar
                       src={c.author.avatar}
-                      alt={c.author.username}
-                      className="w-7 h-7 rounded-full flex-shrink-0 mt-0.5"
+                      username={c.author.username}
+                      size={28}
+                      className="mt-0.5"
                     />
                     <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2">
                       <div className="flex items-center justify-between gap-2">
