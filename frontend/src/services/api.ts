@@ -8,11 +8,11 @@ const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // ── Хранилище токенов ────────────────────────────────────────────────────────
 
-const TOKEN_KEY = 'niti_access_token';
-const REFRESH_KEY = 'niti_refresh_token';
+const TOKEN_KEY   = 'access_token';
+const REFRESH_KEY = 'refresh_token';
 
 export const tokenStorage = {
-  getAccess: () => localStorage.getItem(TOKEN_KEY),
+  getAccess:  () => localStorage.getItem(TOKEN_KEY),
   getRefresh: () => localStorage.getItem(REFRESH_KEY),
   save: (access: string, refresh: string) => {
     localStorage.setItem(TOKEN_KEY, access);
@@ -24,19 +24,72 @@ export const tokenStorage = {
   },
 };
 
-// ── Базовый fetch: Bearer-токен + JSON ────────────────────────────────────────
+// ── Авто-refresh токена ───────────────────────────────────────────────────────
+
+let _isRefreshing = false;
+let _refreshQueue: Array<(token: string) => void> = [];
+
+async function _doRefresh(): Promise<string | null> {
+  const refreshToken = tokenStorage.getRefresh();
+  if (!refreshToken) return null;
+
+  const res = await fetch(`${BASE_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${refreshToken}` },
+  });
+
+  if (!res.ok) {
+    tokenStorage.clear();
+    window.location.href = '/login';
+    return null;
+  }
+
+  const data = await res.json();
+  tokenStorage.save(
+    data.access_token,
+    data.refresh_token ?? refreshToken,
+  );
+  return data.access_token as string;
+}
+
+// ── Базовый fetch: Bearer-токен + JSON + авто-refresh ────────────────────────
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = tokenStorage.getAccess();
-  const res = await fetch(`${BASE_URL}${path}`, {
-    credentials: 'include',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options?.headers ?? {}),
-    },
-  });
+  const makeRequest = (token: string | null) =>
+    fetch(`${BASE_URL}${path}`, {
+      credentials: 'include',
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options?.headers ?? {}),
+      },
+    });
+
+  let res = await makeRequest(tokenStorage.getAccess());
+
+  // ── 401: пробуем refresh ──────────────────────────────────────────────────
+  if (res.status === 401) {
+    if (_isRefreshing) {
+      const newToken = await new Promise<string>((resolve) => {
+        _refreshQueue.push(resolve);
+      });
+      res = await makeRequest(newToken);
+    } else {
+      _isRefreshing = true;
+      const newToken = await _doRefresh();
+      _isRefreshing = false;
+
+      if (newToken) {
+        _refreshQueue.forEach((cb) => cb(newToken));
+        _refreshQueue = [];
+        res = await makeRequest(newToken);
+      } else {
+        _refreshQueue = [];
+      }
+    }
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Ошибка сети' }));
     throw new Error(err.error || `HTTP ${res.status}`);
@@ -126,7 +179,7 @@ export const postsApi = {
     postType?: string;
     board_id?: number;
   }): Promise<Post> {
-    return apiFetch('/posts', { method: 'POST', body: JSON.stringify(payload) });
+    return apiFetch('/posts/', { method: 'POST', body: JSON.stringify(payload) });
   },
 
   async uploadImage(postId: string | number, file: File): Promise<Post> {
@@ -271,8 +324,40 @@ export const boardsApi = {
     description?: string;
     tags?: string[];
     isPublic?: boolean;
+    coverImage?: string;
+    post_ids?: number[];
   }): Promise<Board> {
-    return apiFetch('/boards', { method: 'POST', body: JSON.stringify(data) });
+    return apiFetch('/boards/', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  /** PUT /api/boards/<id> — обновить доску, в т.ч. список постов */
+  async update(boardId: string | number, data: {
+    name?: string;
+    description?: string;
+    tags?: string[];
+    isPublic?: boolean;
+    coverImage?: string;
+    post_ids?: number[];
+  }): Promise<Board> {
+    return apiFetch(`/boards/${boardId}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+
+  /** DELETE /api/boards/<id> — удалить доску */
+  async delete(boardId: string | number): Promise<{ ok: boolean; unlinked_posts: number }> {
+    return apiFetch(`/boards/${boardId}`, { method: 'DELETE' });
+  },
+
+  /** POST /api/boards/<id>/posts — добавить один пост в доску */
+  async addPost(boardId: string | number, postId: string | number): Promise<{ ok: boolean }> {
+    return apiFetch(`/boards/${boardId}/posts`, {
+      method: 'POST',
+      body: JSON.stringify({ post_id: Number(postId) }),
+    });
+  },
+
+  /** DELETE /api/boards/<id>/posts/<postId> — убрать пост из доски */
+  async removePost(boardId: string | number, postId: string | number): Promise<{ ok: boolean }> {
+    return apiFetch(`/boards/${boardId}/posts/${postId}`, { method: 'DELETE' });
   },
 
   async follow(boardId: string): Promise<{ isFollowing: boolean; followers: number }> {
@@ -303,39 +388,25 @@ export interface UpdateProfilePayload {
 }
 
 export const usersApi = {
-  /** Публичный профиль по username */
   async getProfile(username: string): Promise<UserProfile> {
     return apiFetch<UserProfile>(`/users/${username}`);
   },
 
-  /** Публичный профиль по числовому ID */
   async getProfileById(userId: number | string): Promise<UserProfile> {
     return apiFetch<UserProfile>(`/users/${userId}`);
   },
 
-  /**
-   * GET /api/users/me — полный профиль текущего пользователя.
-   * Требует JWT-токена.
-   */
   async getMe(): Promise<AuthUser> {
     return apiFetch<AuthUser>('/users/me');
   },
 
-  /**
-   * PUT /api/users/me — обновление username и/или bio.
-   * Требует JWT-токена.
-   */
   async updateProfile(payload: UpdateProfilePayload): Promise<AuthUser> {
     return apiFetch<AuthUser>('/users/me', {
-      method: 'PUT',
+      method: 'PATCH',
       body: JSON.stringify(payload),
     });
   },
 
-  /**
-   * POST /api/users/me/avatar — загрузка / смена аватара (multipart).
-   * Требует JWT-токена. Ограничение: 5 МБ, jpg/jpeg/png/gif/webp.
-   */
   async uploadAvatar(file: File): Promise<{ ok: boolean; avatar_url: string }> {
     const token = tokenStorage.getAccess();
     const form = new FormData();
@@ -353,7 +424,6 @@ export const usersApi = {
     return res.json();
   },
 
-  /** DELETE /api/users/me/avatar — сброс аватара на дефолтный */
   async removeAvatar(): Promise<{ ok: boolean; avatar_url: string }> {
     return apiFetch('/users/me/avatar', { method: 'DELETE' });
   },

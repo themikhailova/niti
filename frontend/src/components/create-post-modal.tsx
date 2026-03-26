@@ -1,15 +1,24 @@
 import React from 'react';
-import { postsApi } from '../services/api';
-import { X, Image as ImageIcon, Bold, Italic, List, Upload, Tag, Globe, Users, Smile } from 'lucide-react';
+import { postsApi, boardsApi } from '../services/api';
+import { X, Image as ImageIcon, Bold, Italic, List, Upload, Tag, Globe, Users, Smile, Loader2 } from 'lucide-react';
 import { moodConfigs, type MoodType } from '../data/mock-data';
+import type { Board } from '../data/mock-data';
 
 interface CreatePostModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  initialBoardId?: string | null;
+  currentUsername?: string;
 }
 
-export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalProps) {
+export function CreatePostModal({ 
+  isOpen, 
+  onClose, 
+  onSuccess, 
+  initialBoardId, 
+  currentUsername 
+}: CreatePostModalProps) {
   const [title, setTitle] = React.useState('');
   const [content, setContent] = React.useState('');
   const [selectedBoard, setSelectedBoard] = React.useState('');
@@ -23,6 +32,11 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
   const [imageFile, setImageFile] = React.useState<File | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [apiError, setApiError] = React.useState('');
+  
+  // Состояния для досок пользователя
+  const [userBoards, setUserBoards] = React.useState<Board[]>([]);
+  const [loadingBoards, setLoadingBoards] = React.useState(false);
+  
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -30,13 +44,46 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
   const maxChars = 5000;
   const charCount = content.length;
 
+  // Загружаем реальные доски пользователя из API
+  React.useEffect(() => {
+    if (!isOpen || !currentUsername) return;
+    
+    setLoadingBoards(true);
+    boardsApi.getByUser(currentUsername)
+      .then((boards) => {
+        setUserBoards(boards);
+        // Если есть initialBoardId и он есть в списке — выбираем его
+        if (initialBoardId && boards.some(b => String(b.id) === String(initialBoardId))) {
+          setSelectedBoard(initialBoardId);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load boards:', err);
+        setUserBoards([]);
+      })
+      .finally(() => setLoadingBoards(false));
+  }, [isOpen, currentUsername, initialBoardId]);
+
+  // Сбрасываем выбранную доску при закрытии модала
+  React.useEffect(() => {
+    if (!isOpen) {
+      setSelectedBoard('');
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleReset = () => {
-    setTitle(''); setContent(''); setSelectedBoard('');
-    setTags([]); setTagInput(''); setVisibility('public');
-    setSelectedMood(null); setUploadedImage(null);
-    setImageFile(null); setApiError('');
+    setTitle(''); 
+    setContent(''); 
+    setSelectedBoard('');
+    setTags([]); 
+    setTagInput(''); 
+    setVisibility('public');
+    setSelectedMood(null); 
+    setUploadedImage(null);
+    setImageFile(null); 
+    setApiError('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -56,10 +103,13 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
         visibility: vis,
         tags,
         postType:   imageFile ? (content.trim() ? 'mixed' : 'image') : 'text',
+        board_id:   selectedBoard ? Number(selectedBoard) : undefined,
       });
+      
       if (imageFile) {
         await postsApi.uploadImage(post.id, imageFile);
       }
+      
       handleReset();
       onSuccess();
       onClose();
@@ -84,10 +134,15 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
-      if (file.size > 5 * 1024 * 1024) { setApiError('Изображение превышает 5 МБ'); return; }
+      if (file.size > 5 * 1024 * 1024) { 
+        setApiError('Изображение превышает 5 МБ'); 
+        return; 
+      }
       setImageFile(file);
       const reader = new FileReader();
-      reader.onload = (ev) => { setUploadedImage(ev.target?.result as string); };
+      reader.onload = (ev) => { 
+        setUploadedImage(ev.target?.result as string); 
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -95,10 +150,15 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { setApiError('Изображение превышает 5 МБ'); return; }
+      if (file.size > 5 * 1024 * 1024) { 
+        setApiError('Изображение превышает 5 МБ'); 
+        return; 
+      }
       setImageFile(file);
       const reader = new FileReader();
-      reader.onload = (ev) => { setUploadedImage(ev.target?.result as string); };
+      reader.onload = (ev) => { 
+        setUploadedImage(ev.target?.result as string); 
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -122,6 +182,7 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
   };
 
   const selectedMoodConfig = selectedMood ? moodConfigs[selectedMood] : null;
+  const selectedBoardName = userBoards.find(b => String(b.id) === String(selectedBoard))?.name;
 
   return (
     <>
@@ -139,7 +200,14 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
         >
           {/* Header */}
           <div className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
-            <h2 className="text-2xl font-semibold text-gray-900">Новый пост</h2>
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-900">Новый пост</h2>
+              {initialBoardId && selectedBoardName && (
+                <p className="text-sm text-blue-600 mt-1">
+                  Будет добавлен в доску «{selectedBoardName}»
+                </p>
+              )}
+            </div>
             <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -178,7 +246,6 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                     />
                     <div className="flex justify-between items-center mt-2">
                       <div className="flex items-center gap-2">
-                        {/* Simple formatting hints */}
                         <span className="text-xs text-gray-500">
                           Совет: используйте **жирный** или *курсив* для акцента
                         </span>
@@ -248,18 +315,41 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Добавить в доску
                     </label>
-                    <select
-                      value={selectedBoard}
-                      onChange={(e) => setSelectedBoard(e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
-                    >
-                      <option value="">Выберите доску...</option>
-                      <option value="b1">🎨 Minimalist Aesthetics</option>
-                      <option value="b2">🏞️ Natural Landscapes</option>
-                      <option value="b3">🌿 Botanical Studies</option>
-                      <option value="b4">📚 Editorial Design</option>
-                      <option value="b5">✨ Creative Inspiration</option>
-                    </select>
+                    
+                    {initialBoardId ? (
+                      <select
+                        value={selectedBoard}
+                        disabled
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                      >
+                        <option value={initialBoardId}>
+                          {loadingBoards ? 'Загрузка...' : (selectedBoardName || 'Выбранная доска')}
+                        </option>
+                      </select>
+                    ) : (
+                      <select
+                        value={selectedBoard}
+                        onChange={(e) => setSelectedBoard(e.target.value)}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900"
+                      >
+                        <option value="">Выберите доску...</option>
+                        {loadingBoards ? (
+                          <option disabled>Загрузка досок...</option>
+                        ) : (
+                          userBoards.map((board) => (
+                            <option key={board.id} value={board.id}>
+                              {board.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    )}
+                    
+                    {!initialBoardId && userBoards.length === 0 && !loadingBoards && (
+                      <p className="mt-1 text-xs text-gray-500">
+                        У вас пока нет досок. Создайте доску, чтобы добавлять в неё посты.
+                      </p>
+                    )}
                   </div>
 
                   {/* Mood Selection */}
@@ -411,15 +501,21 @@ export function CreatePostModal({ isOpen, onClose, onSuccess }: CreatePostModalP
           {/* Footer */}
           <div className="flex items-center justify-between px-8 py-5 border-t border-gray-100 bg-gray-50">
             <div className="flex items-center gap-4">
-              <button type="button" onClick={onClose} disabled={loading}
-                className="px-6 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50">
+              <button 
+                type="button" 
+                onClick={onClose} 
+                disabled={loading}
+                className="px-6 py-2.5 text-gray-700 font-medium hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+              >
                 Отмена
               </button>
               {apiError && <p className="text-sm text-red-500">{apiError}</p>}
             </div>
-            <button onClick={handleSubmit}
+            <button 
+              onClick={handleSubmit}
               disabled={loading || (!content.trim() && !imageFile)}
-              className="px-8 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+              className="px-8 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               {loading ? 'Публикация...' : 'Опубликовать'}
             </button>
           </div>

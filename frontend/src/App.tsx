@@ -6,7 +6,7 @@ import { authApi, postsApi, boardsApi, usersApi } from './services/api';
 import type { AuthUser } from './services/api';
 import { PostCard } from './components/post-card';
 import { BoardPreview } from './components/board-preview';
-import { ProfilePage } from './components/profile-page';
+import { ProfilePage } from './components/ProfilePage';
 import { BoardView } from './components/BoardView';
 import { PostDetailView } from './components/PostDetailView';
 import { CreatePostModal } from './components/create-post-modal';
@@ -88,6 +88,8 @@ export default function App() {
   const [loadingBoards, setLoadingBoards] = React.useState(true);
   const [loadingProfile, setLoadingProfile] = React.useState(false);
 
+  const [createPostInitialBoardId, setCreatePostInitialBoardId] = React.useState<string | null>(null);
+  
   // ── Восстановление сессии ──────────────────────────────────────────────────
   React.useEffect(() => {
     const init = async () => {
@@ -278,6 +280,46 @@ export default function App() {
     setToastMessage('Профиль обновлён!');
     setShowToast(true);
   };
+  const openCreatePostWithBoard = (boardId: string) => {
+    setCreatePostInitialBoardId(boardId);
+    setShowCreatePost(true);
+  };
+  const refreshBoardsAndProfile = React.useCallback(async () => {
+    // Обновляем доски
+    try {
+      const freshBoards = await boardsApi.getAll(10);
+      setBoards(freshBoards);
+    } catch (error) {
+      console.error('Failed to refresh boards:', error);
+    }
+    
+    // Если мы на странице своего профиля — обновляем профиль
+    if (currentUser && viewingOwnProfile) {
+      try {
+        const freshProfile = await usersApi.getProfile(currentUser.username);
+        setUserProfile(freshProfile);
+      } catch (error) {
+        console.error('Failed to refresh profile:', error);
+      }
+    }
+    
+    if (currentUser) {
+      try {
+        const myPosts = await postsApi.getMyPosts();
+        setUserProfile((prev) => prev ? { ...prev, posts: myPosts } : prev);
+        
+        // Также обновляем ленту
+        const freshFeed = await postsApi.getFeed(1);
+        const raw = currentUser.avatar || '';
+        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') 
+          ? `${raw}?v=${Date.now()}` 
+          : raw;
+        setPosts(patchPostsWithCurrentUser(freshFeed, currentUser, av));
+      } catch (error) {
+        console.error('Failed to refresh user posts:', error);
+      }
+    }
+  }, [currentUser, viewingOwnProfile]);
 
   const handleFollow = async (boardId: string) => {
     try {
@@ -336,16 +378,39 @@ export default function App() {
       {/* Modals */}
       <CreatePostModal
         isOpen={showCreatePost}
-        onClose={() => setShowCreatePost(false)}
+        onClose={() => {
+          setShowCreatePost(false);
+          setCreatePostInitialBoardId(null);
+        }}
         onSuccess={handlePostCreated}
+        initialBoardId={createPostInitialBoardId}
+        currentUsername={currentUser?.username}
       />
       <CreateBoardModal
         isOpen={showCreateBoard}
         onClose={() => setShowCreateBoard(false)}
-        onSuccess={() => {
+        onSuccess={async () => {
           setToastMessage('Доска создана!');
           setShowToast(true);
-          boardsApi.getAll(10).then(setBoards).catch(() => {});
+          
+          // Обновляем доски
+          await refreshBoardsAndProfile();
+          
+          // 👇 Важно: обновляем посты в ленте, чтобы у выбранных постов появился sourceBoard
+          try {
+            const freshFeed = await postsApi.getFeed(1);
+            if (currentUser) {
+              const raw = currentUser.avatar || '';
+              const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') 
+                ? `${raw}?v=${Date.now()}` 
+                : raw;
+              setPosts(patchPostsWithCurrentUser(freshFeed, currentUser, av));
+            } else {
+              setPosts(freshFeed);
+            }
+          } catch (error) {
+            console.error('Failed to refresh feed:', error);
+          }
         }}
       />
       <SearchModal
@@ -445,6 +510,10 @@ export default function App() {
             onRequireAuth={() => setShowAuthModal(true)}
             onUserClick={handleNavigateToUser}
             currentLoggedInUsername={currentUser?.username}
+            onViewAllBoards={() => {
+              // Загружаем доски профиля и переходим на первую
+              // ProfilePage управляет табами сам — просто переключаем вкладку через проп
+            }}
           />
         ) : (
           <div className="flex items-center justify-center h-64 text-gray-500">
@@ -452,12 +521,31 @@ export default function App() {
           </div>
         )
       ) : currentView === 'board' && selectedBoard ? (
+        // App.tsx
         <BoardView
           board={selectedBoard}
           posts={posts.filter((p) => p.sourceBoard?.id === selectedBoard.id)}
           onBack={() => navigateTo('feed')}
           onFollowToggle={async (boardId) => { await handleFollow(boardId); }}
-          onPostClick={(post) => { setPreviousView(currentView === 'board' ? 'board' : currentView === 'profile' ? 'profile' : 'feed'); setSelectedPost(post); setCurrentView('post'); }}
+          onPostClick={(post) => { 
+            setPreviousView(currentView === 'board' ? 'board' : currentView === 'profile' ? 'profile' : 'feed'); 
+            setSelectedPost(post); 
+            setCurrentView('post'); 
+          }}
+          currentUsername={currentUser?.username}
+          onCreatePostWithBoard={openCreatePostWithBoard}
+          onBoardUpdated={refreshBoardsAndProfile}
+          onBoardDeleted={() => {
+            // 👈 Возвращаемся на предыдущий экран
+            if (previousView === 'profile') {
+              navigateTo('profile');
+            } else {
+              navigateTo('feed');
+            }
+            // Показываем уведомление
+            setToastMessage('Доска удалена');
+            setShowToast(true);
+          }}
         />
       ) : currentView === 'post' && selectedPost ? (
         <PostDetailView

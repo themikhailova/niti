@@ -265,9 +265,9 @@ export function ProfilePage({
                 Доски
                 <span className="text-gray-500 font-normal ml-2">({profile.boards.length})</span>
               </h2>
-              <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
+              {/* <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
                 Смотреть все
-              </button>
+              </button> */}
             </div>
             <div className="relative">
               <div className="flex gap-4 overflow-x-auto pb-4 -mx-6 px-6 scrollbar-hide">
