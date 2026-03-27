@@ -280,6 +280,7 @@ class Post(db.Model):
 
     user_id  = db.Column(db.Integer, db.ForeignKey('user.id'),  nullable=False, index=True)
     board_id = db.Column(db.Integer, db.ForeignKey('board.id'), nullable=True,  index=True)
+    
 
     tags = db.relationship('Tag', secondary=post_tags, lazy='subquery',
                            backref=db.backref('posts', lazy=True))

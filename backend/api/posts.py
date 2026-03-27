@@ -375,7 +375,7 @@ def create_post():
     # Денормализованные счётчики
     current_user.posts_count = (current_user.posts_count or 0) + 1
     if board:
-        board.post_count = (board.post_count or 0) + 1
+        board.post_count = (board.post_count or 0) + 1  
 
     db.session.add(post)
     db.session.commit()

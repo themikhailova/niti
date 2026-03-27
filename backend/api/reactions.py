@@ -15,7 +15,7 @@ from pydantic import BaseModel, field_validator, ValidationError
 
 from . import api_bp
 from models import ReactionTypeEnum
-from services.reaction_service import ReactionService
+from services.reaction_service import ReactionService, reaction_counts_to_dict
 
 
 # ── Pydantic-схемы ────────────────────────────────────────────────────────────

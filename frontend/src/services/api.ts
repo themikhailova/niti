@@ -179,7 +179,7 @@ export const postsApi = {
     postType?: string;
     board_id?: number;
   }): Promise<Post> {
-    return apiFetch('/posts/', { method: 'POST', body: JSON.stringify(payload) });
+    return apiFetch('/posts', { method: 'POST', body: JSON.stringify(payload) });
   },
 
   async uploadImage(postId: string | number, file: File): Promise<Post> {

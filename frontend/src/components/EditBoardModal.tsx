@@ -110,8 +110,7 @@ export function EditBoardModal({ isOpen, board, onClose, onSuccess, onDelete  }:
   const handleDelete = async () => {
     try {
       await boardsApi.delete(board.id);
-      onSuccess();
-      onDelete?.(); 
+      onDelete?.();  
       onClose();
     } catch (e: any) {
       setError(e.message || 'Ошибка удаления');

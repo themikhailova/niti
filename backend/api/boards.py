@@ -160,7 +160,6 @@ def create_board():
         for post in posts_to_update:
             post.board_id = board.id
         
-        # 👇 ВАЖНО: обновляем post_count доски
         board.post_count = len(posts_to_update)
     
     db.session.commit()

@@ -503,7 +503,11 @@ export default function App() {
             isAuthenticated={isAuthenticated}
             onCreatePost={() => setShowCreatePost(true)}
             onCreateBoard={() => setShowCreateBoard(true)}
-            onBoardClick={(board) => { setSelectedBoard(board); setCurrentView('board'); }}
+            onBoardClick={(board) => { 
+              setPreviousView('profile'); 
+              setSelectedBoard(board); 
+              setCurrentView('board'); 
+            }}
             onPostClick={(post) => { setPreviousView(currentView === 'board' ? 'board' : currentView === 'profile' ? 'profile' : 'feed'); setSelectedPost(post); setCurrentView('post'); }}
             onPostDeleted={handlePostDeleted}
             onProfileUpdated={handleProfileUpdated}
@@ -535,17 +539,22 @@ export default function App() {
           currentUsername={currentUser?.username}
           onCreatePostWithBoard={openCreatePostWithBoard}
           onBoardUpdated={refreshBoardsAndProfile}
-          onBoardDeleted={() => {
-            // 👈 Возвращаемся на предыдущий экран
+          onBoardDeleted={async () => {
+            // 👇 Сначала обновляем данные
+            await refreshBoardsAndProfile();
+            
+            // 👇 Потом возвращаемся на предыдущий экран
             if (previousView === 'profile') {
               navigateTo('profile');
             } else {
               navigateTo('feed');
             }
+            
             // Показываем уведомление
             setToastMessage('Доска удалена');
             setShowToast(true);
           }}
+
         />
       ) : currentView === 'post' && selectedPost ? (
         <PostDetailView
@@ -587,7 +596,11 @@ export default function App() {
                           key={board.id}
                           board={board}
                           onFollow={handleFollow}
-                          onClick={() => { setSelectedBoard(board); setCurrentView('board'); }}
+                          onClick={() => { 
+                            setPreviousView(currentView === 'profile' ? 'profile' : 'feed'); 
+                            setSelectedBoard(board); 
+                            setCurrentView('board'); 
+                          }}
                         />
                       ))}
                     </Masonry>
@@ -736,7 +749,11 @@ export default function App() {
                           key={board.id}
                           board={board}
                           onFollow={handleFollow}
-                          onClick={() => { setSelectedBoard(board); setCurrentView('board'); }}
+                          onClick={() => { 
+                            setPreviousView(currentView === 'profile' ? 'profile' : 'feed'); 
+                            setSelectedBoard(board); 
+                            setCurrentView('board'); 
+                          }}
                         />
                       ))}
                     </Masonry>
