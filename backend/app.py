@@ -10,6 +10,7 @@ from config import config
 from models import db, User
 from extensions import limiter, jwt, jwt_blacklist   # ← единственный источник
 
+from docs.swagger import setup_swagger
 
 def create_app(config_name='default'):
     """Application factory"""
@@ -115,6 +116,8 @@ def create_app(config_name='default'):
         if path and os.path.exists(os.path.join(dist, path)):
             return send_from_directory(dist, path)
         return send_from_directory(dist, 'index.html')
+    
+    setup_swagger(app)
 
     return app
 
