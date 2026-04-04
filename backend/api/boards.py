@@ -151,17 +151,12 @@ def create_board():
 
     # ДОБАВЛЯЕМ ПОСТЫ
     if body.post_ids:
-        # Находим посты и обновляем их board_id
-        posts_to_update = Post.query.filter(
+        Post.query.filter(
             Post.id.in_(body.post_ids),
             Post.user_id == current_user.id
-        ).all()
-        
-        for post in posts_to_update:
-            post.board_id = board.id
-        
-        board.post_count = len(posts_to_update)
-    
+        ).update({'board_id': board.id}, synchronize_session=False)
+
+    db.session.commit()
     db.session.commit()
     return jsonify(board_to_dict(board, current_user)), 201
 
@@ -185,12 +180,9 @@ def add_post_to_board(board_id: int):
         return jsonify({'error': 'Нет доступа'}), 403
 
     post.board_id = board.id
-    # 👇 Обновляем счётчик
-    board.post_count = board.posts.count()
-    
     db.session.commit()
-    return jsonify({'ok': True}), 200
 
+    return jsonify({'ok': True})
 
 @api_bp.route('/boards/<int:board_id>/posts/<int:post_id>', methods=['DELETE'])
 @jwt_required()
@@ -208,12 +200,9 @@ def remove_post_from_board(board_id: int, post_id: int):
 
     if post.board_id == board.id:
         post.board_id = None
-        # 👇 Обновляем счётчик
-        board.post_count = board.posts.count()
         db.session.commit()
 
-    return jsonify({'ok': True}), 200
-
+    return jsonify({'ok': True})
 
 @api_bp.route('/boards/me', methods=['GET'])
 @jwt_required()
@@ -271,22 +260,16 @@ def update_board(board_id: int):
     # Обновляем список постов доски если передан post_ids
     if body.post_ids is not None:
         # Отвязываем все текущие посты этого пользователя от доски
-        old_posts = Post.query.filter_by(board_id=board.id, user_id=user_id).all()
-        for post in old_posts:
-            post.board_id = None
-        
+        Post.query.filter_by(board_id=board.id, user_id=user_id).update(
+            {'board_id': None}, synchronize_session=False
+        )
         # Привязываем выбранные посты (только свои)
         if body.post_ids:
-            new_posts = Post.query.filter(
+            Post.query.filter(
                 Post.id.in_(body.post_ids),
                 Post.user_id == user_id
-            ).all()
-            for post in new_posts:
-                post.board_id = board.id
-        
-        # 👇 ВАЖНО: обновляем post_count доски
-        board.post_count = len(body.post_ids) if body.post_ids else 0
-    
+            ).update({'board_id': board.id}, synchronize_session=False)
+
     db.session.commit()
     current_user = db.session.get(User, user_id)
     return jsonify(board_to_dict(board, current_user)), 200
@@ -295,6 +278,10 @@ def update_board(board_id: int):
 @api_bp.route('/boards/<int:board_id>', methods=['DELETE'])
 @jwt_required()
 def delete_board(board_id: int):
+    """
+    DELETE /api/boards/<id> — удалить доску. Только владелец.
+    Если есть посты — разрываем связь (post.board_id = NULL), доска удаляется.
+    """
     user_id = int(get_jwt_identity())
 
     board = db.session.get(Board, board_id)
@@ -305,13 +292,8 @@ def delete_board(board_id: int):
 
     post_count = board.posts.count()
     if post_count > 0:
-        # Разрываем связь постов с доской
-        posts = board.posts.all()
-        for post in posts:
-            post.board_id = None
-        
-        # 👇 post_count уже обновится автоматически? Нет, нужно сбросить
-        board.post_count = 0
+        # Мягкое удаление: разрываем связь постов с доской
+        Post.query.filter_by(board_id=board_id).update({'board_id': None})
 
     db.session.delete(board)
     db.session.commit()

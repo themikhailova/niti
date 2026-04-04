@@ -23,7 +23,8 @@ from pydantic import BaseModel, field_validator, ValidationError
 
 from . import api_bp
 from models import db, Post, Board, Tag, User, MoodEnum, VisibilityEnum, Comment, Reaction
-from utils import get_avatar_url, RecommendationEngine
+from utils import get_avatar_url
+from services.recommendation_engine import score_and_rank, on_post_created
 
 
 # ── Pydantic-схемы ────────────────────────────────────────────────────────────
@@ -278,48 +279,80 @@ def _get_current_user() -> Optional[User]:
 @api_bp.route('/posts/feed', methods=['GET'])
 def feed():
     """
-    GET /api/posts/feed?page=1&mode=balanced
-    Лента постов.
-    Авторизованным — посты подписок + ВСЕ публичные посты (чтобы новый пользователь видел контент).
-    Гостям — только публичные.
+    GET /api/posts/feed?page=1&mood=calm&exclude=1,2,3
+    Персонализированная лента.
+
+    Query params:
+      page    — номер страницы (default 1)
+      mood    — фильтр по mood (joyful|calm|reflective|energetic|melancholic|inspired)
+      exclude — comma-separated список post_id уже показанных
     """
-    page     = request.args.get('page', 1, type=int)
-    per_page = current_app.config.get('POSTS_PER_PAGE', 20)
+    page           = request.args.get('page', 1, type=int)
+    per_page       = current_app.config.get('POSTS_PER_PAGE', 20)
+    requested_mood = request.args.get('mood', None)
+    exclude_param  = request.args.get('exclude', '')
+
+    # Парсим exclude
+    exclude_ids: set[int] = set()
+    if exclude_param:
+        for s in exclude_param.split(','):
+            s = s.strip()
+            if s.isdigit():
+                exclude_ids.add(int(s))
+
+    # Валидируем mood
+    valid_moods = {m.value for m in MoodEnum}
+    if requested_mood and requested_mood not in valid_moods:
+        return jsonify({'error': f'Неверный mood. Допустимые: {", ".join(sorted(valid_moods))}'}), 400
 
     current_user = _get_current_user()
     viewer_id    = current_user.id if current_user else None
 
+    # ── Формируем пул кандидатов ──────────────────────────────────────────
     if current_user:
-        followed_ids = [u.id for u in current_user.following]
+        followed_ids = [u.id for u in current_user.following.all()]
         followed_ids.append(current_user.id)
-
-        # ←←← ГЛАВНОЕ ИСПРАВЛЕНИЕ
-        posts = Post.query.filter(
+        candidate_q = Post.query.filter(
             or_(
                 Post.user_id.in_(followed_ids),
-                Post.visibility == VisibilityEnum.public
+                Post.visibility == VisibilityEnum.public,
             )
-        ).order_by(Post.created_at.desc()).all()
-
-        mode  = request.args.get('mode', 'balanced')
-        posts = RecommendationEngine.get_recommended_posts(current_user, posts, mode)
-    else:
-        # Гости видят только публичные (как было)
-        posts = (
-            Post.query
-            .filter(Post.visibility == VisibilityEnum.public)
-            .order_by(Post.created_at.desc())
-            .all()
         )
+    else:
+        candidate_q = Post.query.filter(Post.visibility == VisibilityEnum.public)
 
+    # SQL-фильтр по mood (только жёсткий — движок потом тоже учтёт)
+    if requested_mood:
+        try:
+            mood_enum = MoodEnum(requested_mood)
+            candidate_q = candidate_q.filter(Post.mood == mood_enum)
+        except ValueError:
+            pass
+
+    candidates = candidate_q.order_by(Post.created_at.desc()).all()
+
+    # ── Ранжирование через гибридный движок ──────────────────────────────
+    try:
+        ranked = score_and_rank(
+            candidate_posts=candidates,
+            current_user=current_user,
+            requested_mood=requested_mood,
+            exclude_ids=exclude_ids if exclude_ids else None,
+        )
+    except Exception as exc:
+        current_app.logger.error(f'[feed] recommendation error: {exc}', exc_info=True)
+        ranked = sorted(candidates, key=lambda p: p.created_at, reverse=True)
+
+    # ── Пагинация ─────────────────────────────────────────────────────────
     start      = (page - 1) * per_page
-    page_posts = posts[start:start + per_page]
+    page_posts = ranked[start: start + per_page]
 
     return jsonify({
         'posts':    [post_to_dict(p, viewer_id) for p in page_posts],
         'page':     page,
-        'has_more': len(posts) > start + per_page,
-        'total':    len(posts),
+        'has_more': len(ranked) > start + per_page,
+        'total':    len(ranked),
+        'algo':     'hybrid' if current_user else 'popularity',
     })
 
 
@@ -379,6 +412,11 @@ def create_post():
 
     db.session.add(post)
     db.session.commit()
+
+    try:
+        on_post_created()
+    except Exception:
+        pass
 
     return jsonify(post_to_dict(post, current_user.id)), 201
 
