@@ -179,7 +179,7 @@ export const postsApi = {
     postType?: string;
     board_id?: number;
   }): Promise<Post> {
-    return apiFetch('/posts', { method: 'POST', body: JSON.stringify(payload) });
+    return apiFetch('/posts/', { method: 'POST', body: JSON.stringify(payload) });
   },
 
   async uploadImage(postId: string | number, file: File): Promise<Post> {
@@ -309,8 +309,27 @@ export const commentsApi = {
 // ============================================================
 
 export const boardsApi = {
+  /** Все публичные доски (старый, обратная совместимость) */
   async getAll(limit = 10): Promise<Board[]> {
     const data = await apiFetch<{ boards: Board[] }>(`/boards?limit=${limit}`);
+    return data.boards;
+  },
+
+  /**
+   * GET /api/boards/recommended — персональные рекомендации (левая колонка).
+   * Для гостей возвращает trending.
+   */
+  async getRecommended(limit = 6): Promise<Board[]> {
+    const data = await apiFetch<{ boards: Board[] }>(`/boards/recommended?limit=${limit}`);
+    return data.boards;
+  },
+
+  /**
+   * GET /api/boards/trending — глобальный тренд (правая колонка).
+   * Popularity + momentum + freshness. Не зависит от пользователя.
+   */
+  async getTrending(limit = 6): Promise<Board[]> {
+    const data = await apiFetch<{ boards: Board[] }>(`/boards/trending?limit=${limit}`);
     return data.boards;
   },
 

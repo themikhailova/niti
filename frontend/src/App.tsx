@@ -74,6 +74,8 @@ export default function App() {
   // ── Данные из API ──────────────────────────────────────────────────────────
   const [posts, setPosts] = React.useState<Post[]>([]);
   const [boards, setBoards] = React.useState<Board[]>([]);
+  const [recommendedBoards, setRecommendedBoards] = React.useState<Board[]>([]);
+  const [trendingBoards, setTrendingBoards] = React.useState<Board[]>([]);
 
   // Собственный профиль (currentUser)
   const [userProfile, setUserProfile] = React.useState<UserProfile | null>(null);
@@ -128,14 +130,29 @@ export default function App() {
     init();
   }, []);
 
-  // ── Загрузка досок ─────────────────────────────────────────────────────────
-  React.useEffect(() => {
+  // ── Загрузка досок (две колонки) ───────────────────────────────────────────
+  const loadBoards = React.useCallback(() => {
     setLoadingBoards(true);
-    boardsApi.getAll(10)
-      .then(setBoards)
-      .catch(() => setBoards([]))
-      .finally(() => setLoadingBoards(false));
+    Promise.all([
+      boardsApi.getRecommended(6).catch(() => []),
+      boardsApi.getTrending(6).catch(() => []),
+    ]).then(([rec, trend]) => {
+      setRecommendedBoards(rec);
+      setTrendingBoards(trend);
+      // Обратная совместимость: объединяем уникальные
+      const seen = new Set<string>();
+      const all = [...rec, ...trend].filter(b => {
+        if (seen.has(b.id)) return false;
+        seen.add(b.id);
+        return true;
+      });
+      setBoards(all);
+    }).finally(() => setLoadingBoards(false));
   }, []);
+ 
+  React.useEffect(() => {
+    loadBoards();
+  }, [loadBoards]);
 
   // ── Загрузка своего профиля при первом открытии вкладки Profile ───────────
   React.useEffect(() => {
@@ -392,6 +409,8 @@ export default function App() {
         onSuccess={async () => {
           setToastMessage('Доска создана!');
           setShowToast(true);
+          loadBoards();
+
           
           // Обновляем доски
           await refreshBoardsAndProfile();
@@ -401,8 +420,8 @@ export default function App() {
             const freshFeed = await postsApi.getFeed(1);
             if (currentUser) {
               const raw = currentUser.avatar || '';
-              const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') 
-                ? `${raw}?v=${Date.now()}` 
+              const av = raw && !raw.startsWith('data:') && !raw.includes('?v=')
+                ? `${raw}?v=${Date.now()}`
                 : raw;
               setPosts(patchPostsWithCurrentUser(freshFeed, currentUser, av));
             } else {
@@ -591,16 +610,12 @@ export default function App() {
                     <div className="text-gray-400 text-sm text-center py-8">Загрузка...</div>
                   ) : (
                     <Masonry columnsCount={1} gutter="16px">
-                      {leftBoards.map((board) => (
+                      {recommendedBoards.map((board) => (
                         <BoardPreview
                           key={board.id}
                           board={board}
                           onFollow={handleFollow}
-                          onClick={() => { 
-                            setPreviousView(currentView === 'profile' ? 'profile' : 'feed'); 
-                            setSelectedBoard(board); 
-                            setCurrentView('board'); 
-                          }}
+                          onClick={() => { setSelectedBoard(board); setCurrentView('board'); }}
                         />
                       ))}
                     </Masonry>
@@ -744,16 +759,12 @@ export default function App() {
                     <div className="text-gray-400 text-sm text-center py-8">Загрузка...</div>
                   ) : (
                     <Masonry columnsCount={1} gutter="16px">
-                      {rightBoards.map((board) => (
+                      {trendingBoards.map((board) => (
                         <BoardPreview
                           key={board.id}
                           board={board}
                           onFollow={handleFollow}
-                          onClick={() => { 
-                            setPreviousView(currentView === 'profile' ? 'profile' : 'feed'); 
-                            setSelectedBoard(board); 
-                            setCurrentView('board'); 
-                          }}
+                          onClick={() => { setSelectedBoard(board); setCurrentView('board'); }}
                         />
                       ))}
                     </Masonry>

@@ -20,6 +20,9 @@ from pydantic import BaseModel, field_validator, ValidationError
 from . import api_bp
 from models import db, Board, Post, User
 from utils import get_avatar_url
+from services.recommendation_engine import (
+    rank_boards_personalized, rank_boards_trending, on_board_changed
+)
 
 
 # ── Вспомогательные функции ───────────────────────────────────────────────────
@@ -355,6 +358,10 @@ def follow_board(board_id: int):
         return jsonify({'error': 'Доска не найдена'}), 404
     current_user.follow_board(board)
     db.session.commit()
+    try:
+        on_board_changed()
+    except Exception:
+        pass
     return jsonify({'ok': True, 'followers': board.followers_count, 'isFollowing': True}), 200
 
 
@@ -368,6 +375,10 @@ def unfollow_board(board_id: int):
         return jsonify({'error': 'Доска не найдена'}), 404
     current_user.unfollow_board(board)
     db.session.commit()
+    try:
+        on_board_changed()
+    except Exception:
+        pass
     return jsonify({'ok': True, 'followers': board.followers_count, 'isFollowing': False}), 200
 
 
@@ -387,9 +398,69 @@ def get_board_posts(board_id: int):
 
 @api_bp.route('/boards', methods=['GET'])
 def get_boards():
-    limit  = request.args.get('limit', 10, type=int)
-    boards = Board.query.filter_by(is_public=True)\
-                        .order_by(Board.followers_count.desc())\
-                        .limit(limit).all()
+    """
+    GET /api/boards?limit=10&type=recommended|trending|all
+
+    type=recommended — персональные рекомендации (левая колонка)
+    type=trending    — глобальный тренд (правая колонка)
+    type=all         — старое поведение (топ по followers_count)
+    """
+    limit        = request.args.get('limit', 10, type=int)
+    list_type    = request.args.get('type', 'all')   # recommended | trending | all
     current_user = _get_current_user()
-    return jsonify({'boards': [board_to_dict(b, current_user) for b in boards]}), 200
+
+    # Пул публичных досок (берём с запасом для ранжирования)
+    pool_size = min(limit * 5, 100)
+    pool = Board.query.filter_by(is_public=True)\
+                      .order_by(Board.followers_count.desc())\
+                      .limit(pool_size).all()
+
+    if list_type == 'recommended':
+        ranked = rank_boards_personalized(pool, current_user)
+    elif list_type == 'trending':
+        ranked = rank_boards_trending(pool)
+    else:
+        # Обратная совместимость: сортировка по followers_count
+        ranked = sorted(pool, key=lambda b: b.followers_count, reverse=True)
+
+    page_boards = ranked[:limit]
+    return jsonify({'boards': [board_to_dict(b, current_user) for b in page_boards]}), 200
+
+
+@api_bp.route('/boards/recommended', methods=['GET'])
+def get_recommended_boards():
+    """
+    GET /api/boards/recommended?limit=6
+    Персонализированные рекомендации досок для авторизованного пользователя.
+    Гостям — тот же ответ что и /boards/trending.
+    """
+    limit        = request.args.get('limit', 6, type=int)
+    current_user = _get_current_user()
+
+    pool_size = min(limit * 8, 150)
+    pool = Board.query.filter_by(is_public=True)\
+                      .order_by(Board.followers_count.desc())\
+                      .limit(pool_size).all()
+
+    ranked = rank_boards_personalized(pool, current_user)
+    page_boards = ranked[:limit]
+    return jsonify({'boards': [board_to_dict(b, current_user) for b in page_boards]}), 200
+
+
+@api_bp.route('/boards/trending', methods=['GET'])
+def get_trending_boards():
+    """
+    GET /api/boards/trending?limit=6
+    Глобальный trending: popularity + momentum + freshness.
+    Не зависит от пользователя.
+    """
+    limit    = request.args.get('limit', 6, type=int)
+    pool_size = min(limit * 8, 150)
+    pool = Board.query.filter_by(is_public=True)\
+                      .order_by(Board.followers_count.desc())\
+                      .limit(pool_size).all()
+
+    ranked = rank_boards_trending(pool)
+    current_user = _get_current_user()
+    page_boards = ranked[:limit]
+    return jsonify({'boards': [board_to_dict(b, current_user) for b in page_boards]}), 200
