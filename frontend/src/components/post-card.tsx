@@ -1,6 +1,6 @@
 import React from 'react';
 import { Avatar } from './Avatar';
-import { Heart, MessageCircle, Bookmark, Share2, Users, Trash2 } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Share2, Users, Trash2, Link, Send, X } from 'lucide-react';
 import type { Post } from '../data/mock-data';
 import { moodConfigs } from '../data/mock-data';
 import { postsApi, reactionsApi, commentsApi, tokenStorage } from '../services/api';
@@ -10,11 +10,25 @@ interface PostCardProps {
   post: Post;
   onClick?: () => void;
   onDelete?: (postId: string) => void;
+  /** Открыть модал авторизации */
+  onRequireAuth?: () => void;
+  /** Вызывается после репоста (пост добавлен в ленту профиля) */
+  onReposted?: (post: Post) => void;
+  /** Вызывается после сохранения */
+  onSaved?: (post: Post) => void;
+  /** Username текущего пользователя (без @) */
+  currentUsername?: string;
 }
 
-export function PostCard({ post, onClick, onDelete }: PostCardProps) {
+export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, onSaved, currentUsername }: PostCardProps) {
   const { author, sourceBoard, content, engagement, timestamp, mood } = post;
   const moodConfig = mood ? moodConfigs[mood] : null;
+
+  const isLoggedIn = !!tokenStorage.getAccess();
+  const isOwnPost = currentUsername
+    ? author.username.replace('@', '') === currentUsername
+    : (post.is_own ?? false);
+  const isPrivate = post.visibility === 'private';
 
   // ── Состояние удаления ─────────────────────────────────────────────────────
   const [deleting, setDeleting] = React.useState(false);
@@ -32,7 +46,26 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
   const [commentsLoaded, setCommentsLoaded] = React.useState(false);
   const [commentCount, setCommentCount] = React.useState(engagement.comments ?? 0);
 
-  const isLoggedIn = !!tokenStorage.getAccess();
+  // ── Состояние share-меню ──────────────────────────────────────────────────
+  const [showShareMenu, setShowShareMenu] = React.useState(false);
+  const [shareLoading, setShareLoading] = React.useState(false);
+  const [saveLoading, setSaveLoading] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const [saveCount, setSaveCount] = React.useState(engagement.saves ?? 0);
+
+  const shareMenuRef = React.useRef<HTMLDivElement>(null);
+
+  // Закрываем share-меню при клике снаружи
+  React.useEffect(() => {
+    if (!showShareMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target as Node)) {
+        setShowShareMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showShareMenu]);
 
   // Загружаем реальный счётчик лайков при маунте
   React.useEffect(() => {
@@ -60,11 +93,13 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
 
   const handleLike = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isLoggedIn) { alert('Войдите, чтобы ставить лайки'); return; }
+    if (!isLoggedIn) {
+      onRequireAuth?.();
+      return;
+    }
     if (likePending) return;
     setLikePending(true);
 
-    // Оптимистичное обновление
     const wasLiked = liked;
     setLiked(!wasLiked);
     setLikeCount((c) => wasLiked ? Math.max(0, c - 1) : c + 1);
@@ -75,7 +110,6 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
       setLikeCount(serverLike?.count ?? 0);
       setLiked(res.added);
     } catch {
-      // Откат
       setLiked(wasLiked);
       setLikeCount((c) => wasLiked ? c + 1 : Math.max(0, c - 1));
     } finally {
@@ -103,12 +137,12 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
 
   const handleAddComment = async (e: React.MouseEvent | React.KeyboardEvent) => {
     e.stopPropagation();
-    const trimmed = commentText.trim();
-    if (!trimmed) return;
     if (!isLoggedIn) {
-      alert('Войдите, чтобы оставить комментарий');
+      onRequireAuth?.();
       return;
     }
+    const trimmed = commentText.trim();
+    if (!trimmed) return;
     setCommentLoading(true);
     try {
       const newComment = await commentsApi.create(post.id, trimmed);
@@ -131,6 +165,76 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
       setCommentCount((c) => Math.max(0, c - 1));
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Ошибка при удалении');
+    }
+  };
+
+  // ── Поделиться ────────────────────────────────────────────────────────────
+  const handleShareClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isLoggedIn) {
+      onRequireAuth?.();
+      return;
+    }
+    setShowShareMenu((v) => !v);
+  };
+
+  const handleCopyLink = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowShareMenu(false);
+    const url = `${window.location.origin}/#post-${post.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    // Уведомление через колбэк App
+    onSaved?.(post); // Переиспользуем onSaved как сигнал — App разберёт по типу
+    // Лучше отдельный колбэк — см. ниже
+    if ((window as any).__showCopyToast) (window as any).__showCopyToast();
+  };
+
+  const handleRepost = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowShareMenu(false);
+    if (isOwnPost) return; // свои посты нельзя репостить
+    setShareLoading(true);
+    try {
+      const reposted = await postsApi.repost(post.id);
+      onReposted?.(reposted);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Ошибка при репосте');
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  // ── Сохранить ─────────────────────────────────────────────────────────────
+  const handleSave = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isLoggedIn) {
+      onRequireAuth?.();
+      return;
+    }
+    if (isPrivate) return; // приватные нельзя сохранять
+    if (saveLoading) return;
+    setSaveLoading(true);
+    try {
+      const result = await postsApi.savePost(post.id);
+      setSaved(result.saved);
+      setSaveCount(result.saves_count);
+      if (result.saved) {
+        onSaved?.(post);
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Ошибка при сохранении');
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -157,6 +261,18 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {post.post_kind === 'repost' && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 rounded-full text-xs text-blue-600 border border-blue-200/50">
+                <Send className="w-3 h-3" />
+                <span>Репост</span>
+              </div>
+            )}
+            {post.post_kind === 'saved' && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 rounded-full text-xs text-amber-600 border border-amber-200/50">
+                <Bookmark className="w-3 h-3" />
+                <span>Сохранено</span>
+              </div>
+            )}
             {sourceBoard && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/60 backdrop-blur-sm rounded-full text-sm text-blue-700 border border-blue-200/30">
                 <Users className="w-3.5 h-3.5" />
@@ -173,7 +289,7 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
                 <span>{moodConfig.label}</span>
               </div>
             )}
-            {(post.is_own ?? false) && (
+            {isOwnPost && (
               <button
                 onClick={handleDelete}
                 disabled={deleting}
@@ -222,54 +338,114 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
           className="mt-6 pt-4 border-t border-blue-50"
           onClick={(e) => e.stopPropagation()}
         >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
 
-            {/* Лайк */}
-            <button
-              onClick={handleLike}
-              disabled={likePending}
-              className={`flex items-center gap-2 transition-colors group ${
-                liked ? 'text-blue-600' : 'text-gray-600 hover:text-blue-500'
-              }`}
-              title={liked ? 'Убрать лайк' : 'Нравится'}
-            >
-              <Heart
-                className="w-5 h-5 transition-all duration-150 group-hover:scale-110"
-                fill={liked ? 'currentColor' : 'none'}
-                strokeWidth={liked ? 0 : 2}
-              />
-              <span className="text-sm font-medium">{likeCount}</span>
-            </button>
+              {/* Лайк */}
+              <button
+                onClick={handleLike}
+                disabled={likePending}
+                className={`flex items-center gap-2 transition-colors group ${
+                  liked ? 'text-blue-600' : 'text-gray-600 hover:text-blue-500'
+                }`}
+                title={liked ? 'Убрать лайк' : 'Нравится'}
+              >
+                <Heart
+                  className="w-5 h-5 transition-all duration-150 group-hover:scale-110"
+                  fill={liked ? 'currentColor' : 'none'}
+                  strokeWidth={liked ? 0 : 2}
+                />
+                <span className="text-sm font-medium">{likeCount}</span>
+              </button>
 
-            {/* Комментарии */}
-            <button
-              onClick={handleToggleComments}
-              className={`flex items-center gap-2 transition-colors ${
-                showComments ? 'text-blue-600' : 'text-gray-600 hover:text-blue-600'
-              }`}
-            >
-              <MessageCircle className="w-5 h-5" />
-              <span className="text-sm font-medium">{commentCount}</span>
-            </button>
+              {/* Комментарии */}
+              <button
+                onClick={handleToggleComments}
+                className={`flex items-center gap-2 transition-colors ${
+                  showComments ? 'text-blue-600' : 'text-gray-600 hover:text-blue-600'
+                }`}
+              >
+                <MessageCircle className="w-5 h-5" />
+                <span className="text-sm font-medium">{commentCount}</span>
+              </button>
 
-            {/* Поделиться */}
-            <button
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-2 text-gray-600 hover:text-blue-600 transition-colors"
-            >
-              <Share2 className="w-5 h-5" />
-            </button>
+              {/* Поделиться */}
+              <div className="relative" ref={shareMenuRef}>
+                <button
+                  onClick={handleShareClick}
+                  disabled={shareLoading}
+                  className={`flex items-center gap-2 transition-colors ${
+                    showShareMenu ? 'text-blue-600' : 'text-gray-600 hover:text-blue-600'
+                  } disabled:opacity-40`}
+                  title="Поделиться"
+                >
+                  <Share2 className="w-5 h-5" />
+                </button>
+
+                {/* Share dropdown */}
+                {showShareMenu && (
+                  <div className="absolute left-0 bottom-8 z-30 bg-white rounded-xl shadow-xl border border-gray-200 py-1 min-w-[200px]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Поделиться</span>
+                      <button onClick={(e) => { e.stopPropagation(); setShowShareMenu(false); }} className="text-gray-400 hover:text-gray-600">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Репост — только для чужих публичных постов */}
+                    {!isOwnPost && !isPrivate && (
+                      <button
+                        onClick={handleRepost}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left"
+                      >
+                        <Send className="w-4 h-4 text-blue-500" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">Опубликовать в ленте</p>
+                          <p className="text-xs text-gray-500">Появится на вашей странице</p>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Скопировать ссылку — всегда */}
+                    <button
+                      onClick={handleCopyLink}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left"
+                    >
+                      <Link className="w-4 h-4 text-gray-500" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">Скопировать ссылку</p>
+                        <p className="text-xs text-gray-500">Поделиться вне приложения</p>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Сохранить — только публичные посты */}
+            {!isPrivate ? (
+              <button
+                onClick={handleSave}
+                disabled={saveLoading}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors shadow-sm ${
+                  saved
+                    ? 'bg-amber-500 text-white hover:bg-amber-600'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                } disabled:opacity-40`}
+                title={saved ? 'Убрать из сохранённых' : 'Сохранить'}
+              >
+                <Bookmark className="w-4 h-4" fill={saved ? 'currentColor' : 'none'} strokeWidth={saved ? 0 : 2} />
+                <span className="text-sm font-medium">{saveCount}</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed" title="Приватный пост нельзя сохранить">
+                <Bookmark className="w-4 h-4" />
+                <span className="text-sm font-medium">{saveCount}</span>
+              </div>
+            )}
           </div>
-
-          {/* Сохранить */}
-          <button
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            <Bookmark className="w-4 h-4" />
-            <span className="text-sm font-medium">{engagement.saves ?? 0}</span>
-          </button>
-        </div>
         </div>
 
         {/* ── Секция комментариев ────────────────────────────────────────── */}
@@ -343,7 +519,13 @@ export function PostCard({ post, onClick, onDelete }: PostCardProps) {
               </div>
             ) : (
               <p className="text-sm text-gray-400 mt-2">
-                <span className="text-blue-600 cursor-pointer hover:underline">Войдите</span>, чтобы оставить комментарий
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRequireAuth?.(); }}
+                  className="text-blue-600 hover:underline font-medium"
+                >
+                  Войдите
+                </button>
+                , чтобы оставить комментарий
               </p>
             )}
           </div>

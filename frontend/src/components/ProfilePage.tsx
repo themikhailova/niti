@@ -1,6 +1,6 @@
 import React from 'react';
 import Masonry from 'react-responsive-masonry';
-import { Settings, Plus, Grid, List, Trash2 } from 'lucide-react';
+import { Settings, Plus, Grid, List, Trash2, Filter, Send, Bookmark } from 'lucide-react';
 import { PostCard } from './post-card';
 import { BoardTile } from './board-tile';
 import { EditProfileModal } from './EditProfileModal';
@@ -59,6 +59,10 @@ export function ProfilePage({
   // При изменении подписки инкрементируем — модал перезагрузит список
   const [followReloadKey, setFollowReloadKey] = React.useState(0);
 
+  // Новый фильтр типа постов
+  const [feedTypeFilter, setFeedTypeFilter] = React.useState<Set<'reposts' | 'saved'>>(new Set());
+  const [showFeedTypeFilter, setShowFeedTypeFilter] = React.useState(false);
+
   // Синхронизируем при смене профиля (например переход к другому пользователю)
   React.useEffect(() => {
     setIsFollowing(profile.isFollowing ?? false);
@@ -73,8 +77,29 @@ export function ProfilePage({
     }));
   }, [profile.posts, isOwnProfile]);
 
+  // Фильтрация постов по типу (reposts / saved)
+  const filteredProfilePosts = React.useMemo(() => {
+    let result = enrichedPosts;
+    if (feedTypeFilter.size > 0) {
+      result = result.filter((p) => {
+        if (feedTypeFilter.has('reposts') && p.post_kind === 'repost') return true;
+        if (feedTypeFilter.has('saved') && p.post_kind === 'saved') return true;
+        return false;
+      });
+    }
+    return result;
+  }, [enrichedPosts, feedTypeFilter]);
+
+  const toggleFeedType = (type: 'reposts' | 'saved') => {
+    setFeedTypeFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
+
   const handleFollowToggle = async () => {
-    // Если не авторизован — сразу показываем окно входа
     if (!isAuthenticated) {
       onRequireAuth?.();
       return;
@@ -84,7 +109,6 @@ export function ProfilePage({
     const rawUsername = profile.username.startsWith('@')
       ? profile.username.slice(1)
       : profile.username;
-    // Optimistic update
     const wasFollowing = isFollowing;
     setIsFollowing(!wasFollowing);
     setLocalFollowers((c) => wasFollowing ? Math.max(0, c - 1) : c + 1);
@@ -96,10 +120,8 @@ export function ProfilePage({
         await usersApi.follow(rawUsername);
       }
       onFollowToggle?.(rawUsername, !wasFollowing);
-      // Сигнализируем модалу перезагрузить список
       setFollowReloadKey((k) => k + 1);
     } catch {
-      // Откат при ошибке
       setIsFollowing(wasFollowing);
       setLocalFollowers((c) => wasFollowing ? c + 1 : Math.max(0, c - 1));
     } finally {
@@ -122,7 +144,6 @@ export function ProfilePage({
           reloadKey={followReloadKey}
           onClose={async () => {
             setFollowersModal(null);
-            // Перечитываем актуальные счётчики с сервера после закрытия модала
             try {
               const raw = profile.username.replace('@', '');
               const fresh = await usersApi.getProfile(raw);
@@ -265,9 +286,6 @@ export function ProfilePage({
                 Доски
                 <span className="text-gray-500 font-normal ml-2">({profile.boards.length})</span>
               </h2>
-              {/* <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
-                Смотреть все
-              </button> */}
             </div>
             <div className="relative">
               <div className="flex gap-4 overflow-x-auto pb-4 -mx-6 px-6 scrollbar-hide">
@@ -285,7 +303,7 @@ export function ProfilePage({
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold text-gray-900">
             Посты
-            <span className="text-gray-500 font-normal ml-2">({enrichedPosts.length})</span>
+            <span className="text-gray-500 font-normal ml-2">({filteredProfilePosts.length})</span>
           </h2>
           <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
             <button
@@ -309,10 +327,64 @@ export function ProfilePage({
           </div>
         </div>
 
-        {enrichedPosts.length === 0 && (
+        {/* Фильтр типа постов */}
+        <div className="mb-4">
+          <button
+            onClick={() => setShowFeedTypeFilter(!showFeedTypeFilter)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+              feedTypeFilter.size > 0
+                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                : 'border-gray-300 hover:border-gray-400 text-gray-700'
+            }`}
+          >
+            <Filter className="w-4 h-4" />
+            <span className="font-medium text-sm">
+              {feedTypeFilter.size === 0
+                ? 'Настроить ленту постов'
+                : [...feedTypeFilter].map(t => t === 'reposts' ? 'Репосты' : 'Сохранённое').join(', ')}
+            </span>
+            {feedTypeFilter.size > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setFeedTypeFilter(new Set()); }}
+                className="ml-1 text-blue-500 hover:text-blue-700"
+              >
+                ×
+              </button>
+            )}
+          </button>
+          {showFeedTypeFilter && (
+            <div className="mt-2 p-3 bg-white border border-gray-200 rounded-lg shadow-lg">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => { setFeedTypeFilter(new Set()); setShowFeedTypeFilter(false); }}
+                  className={`px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
+                    feedTypeFilter.size === 0 ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                  }`}
+                >
+                  Все
+                </button>
+                {(['reposts', 'saved'] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => toggleFeedType(type)}
+                    className={`px-3 py-2 rounded-lg border text-sm font-medium transition-all flex items-center gap-1.5 ${
+                      feedTypeFilter.has(type) ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                    }`}
+                  >
+                    {type === 'reposts' ? <><Send className="w-3.5 h-3.5" />Репосты</> : <><Bookmark className="w-3.5 h-3.5" />Сохранённое</>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {filteredProfilePosts.length === 0 && (
           <div className="text-center py-16 text-gray-400">
-            <p className="text-lg">Постов пока нет</p>
-            {isOwnProfile && (
+            <p className="text-lg">
+              {feedTypeFilter.size > 0 ? 'Постов с выбранными фильтрами нет' : 'Постов пока нет'}
+            </p>
+            {isOwnProfile && feedTypeFilter.size === 0 && (
               <button
                 onClick={onCreatePost}
                 className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
@@ -325,7 +397,7 @@ export function ProfilePage({
 
         {viewMode === 'feed' ? (
           <div className="max-w-2xl mx-auto">
-            {enrichedPosts.map((post) => (
+            {filteredProfilePosts.map((post) => (
               <PostCard
                 key={post.id}
                 post={post}
@@ -340,7 +412,7 @@ export function ProfilePage({
             gutter="12px"
             breakpointCols={{ default: 3, 900: 2, 500: 1 }}
           >
-            {enrichedPosts.map((post) => {
+            {filteredProfilePosts.map((post) => {
               const postMoodConfig = post.mood ? moodConfigs[post.mood] : null;
               return (
                 <div

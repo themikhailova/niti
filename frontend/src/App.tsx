@@ -17,7 +17,7 @@ import { Toast } from './components/toast';
 import { moodConfigs, type MoodType, type Board, type Post, type UserProfile } from './data/mock-data';
 
 export default function App() {
-  // Читаем начальный view из hash (#profile, #notifications, etc.)
+  // Читаем начальный view из hash
   const getViewFromHash = (): 'feed' | 'profile' | 'board' | 'post' | 'notifications' => {
     const hash = window.location.hash.replace('#', '');
     if (['feed', 'profile', 'notifications'].includes(hash)) {
@@ -25,6 +25,7 @@ export default function App() {
     }
     return 'feed';
   };
+
   const [currentView, setCurrentView] = React.useState<'feed' | 'profile' | 'board' | 'post' | 'notifications'>(getViewFromHash);
   const [selectedBoard, setSelectedBoard] = React.useState<Board | null>(null);
   const [selectedPost, setSelectedPost] = React.useState<Post | null>(null);
@@ -36,6 +37,7 @@ export default function App() {
   const [showMoodFilter, setShowMoodFilter] = React.useState(false);
   const [showToast, setShowToast] = React.useState(false);
   const [toastMessage, setToastMessage] = React.useState('');
+
   const [hasUnreadNotifications] = React.useState(true);
 
   const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
@@ -44,7 +46,6 @@ export default function App() {
 
   /**
    * Патчит аватар и имя автора в массиве постов для текущего пользователя.
-   * Нужно потому что бэкенд может вернуть старый кэшированный аватар.
    */
   const patchPostsWithCurrentUser = React.useCallback(
     (postsArr: Post[], user: AuthUser, avatarUrl: string): Post[] =>
@@ -60,7 +61,6 @@ export default function App() {
     []
   );
 
-  // Синхронизируем hash с текущим view (post/board не пишем в hash — они эфемерны)
   const navigateTo = React.useCallback(
     (view: 'feed' | 'profile' | 'board' | 'post' | 'notifications') => {
       setCurrentView(view);
@@ -77,13 +77,9 @@ export default function App() {
   const [recommendedBoards, setRecommendedBoards] = React.useState<Board[]>([]);
   const [trendingBoards, setTrendingBoards] = React.useState<Board[]>([]);
 
-  // Собственный профиль (currentUser)
   const [userProfile, setUserProfile] = React.useState<UserProfile | null>(null);
-
-  // Профиль чужого пользователя (из поиска)
   const [viewedProfile, setViewedProfile] = React.useState<UserProfile | null>(null);
   const [viewingOwnProfile, setViewingOwnProfile] = React.useState(true);
-  // username профиля открытого из поиска до авторизации
   const [pendingProfileUsername, setPendingProfileUsername] = React.useState<string | null>(null);
 
   const [loadingFeed, setLoadingFeed] = React.useState(true);
@@ -91,7 +87,7 @@ export default function App() {
   const [loadingProfile, setLoadingProfile] = React.useState(false);
 
   const [createPostInitialBoardId, setCreatePostInitialBoardId] = React.useState<string | null>(null);
-  
+
   // ── Восстановление сессии ──────────────────────────────────────────────────
   React.useEffect(() => {
     const init = async () => {
@@ -112,7 +108,6 @@ export default function App() {
       }
       try {
         const feed = await postsApi.getFeed(1);
-        // Если пользователь авторизован — сразу патчим его посты актуальным аватаром
         if (user) {
           const raw = user.avatar || '';
           const av = raw && !raw.startsWith('data:') && !raw.includes('?v=')
@@ -130,7 +125,7 @@ export default function App() {
     init();
   }, []);
 
-  // ── Загрузка досок (две колонки) ───────────────────────────────────────────
+  // ── Загрузка досок ─────────────────────────────────────────────────────────
   const loadBoards = React.useCallback(() => {
     setLoadingBoards(true);
     Promise.all([
@@ -139,7 +134,6 @@ export default function App() {
     ]).then(([rec, trend]) => {
       setRecommendedBoards(rec);
       setTrendingBoards(trend);
-      // Обратная совместимость: объединяем уникальные
       const seen = new Set<string>();
       const all = [...rec, ...trend].filter(b => {
         if (seen.has(b.id)) return false;
@@ -149,12 +143,12 @@ export default function App() {
       setBoards(all);
     }).finally(() => setLoadingBoards(false));
   }, []);
- 
+
   React.useEffect(() => {
     loadBoards();
   }, [loadBoards]);
 
-  // ── Загрузка своего профиля при первом открытии вкладки Profile ───────────
+  // ── Загрузка своего профиля ────────────────────────────────────────────────
   React.useEffect(() => {
     if (currentView === 'profile' && viewingOwnProfile && currentUser && !userProfile) {
       setLoadingProfile(true);
@@ -165,30 +159,28 @@ export default function App() {
     }
   }, [currentView, currentUser, userProfile, viewingOwnProfile]);
 
-  // ── Обработчики ───────────────────────────────────────────────────────────
+  // ── Обработчики ────────────────────────────────────────────────────────────
   const handleAuthSuccess = (user: AuthUser) => {
     setCurrentUser(user);
     setShowAuthModal(false);
+
     postsApi.getFeed(1).then((feed) => {
-      if (currentUser) {
-        const raw = currentUser.avatar || '';
-        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') ? raw : raw;
-        setPosts(patchPostsWithCurrentUser(feed, currentUser, av));
+      if (user) {
+        const raw = user.avatar || '';
+        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') ? `${raw}?v=${Date.now()}` : raw;
+        setPosts(patchPostsWithCurrentUser(feed, user, av));
       } else {
         setPosts(feed);
       }
     }).catch(() => {});
 
-    // Если до авторизации пользователь открыл чей-то профиль из поиска
     if (pendingProfileUsername) {
       const pending = pendingProfileUsername;
       setPendingProfileUsername(null);
       if (pending === user.username) {
-        // Это был его собственный профиль — показываем как свой
         setViewingOwnProfile(true);
         navigateTo('profile');
       } else {
-        // Чужой профиль — загружаем его
         handleNavigateToUser(pending);
       }
     }
@@ -203,19 +195,14 @@ export default function App() {
     navigateTo('feed');
   };
 
-  /** Открыть профиль пользователя по username (из поиска) */
   const handleNavigateToUser = async (username: string) => {
-    // Если это наш профиль — показываем его
     if (currentUser && currentUser.username === username) {
       setViewingOwnProfile(true);
       navigateTo('profile');
       return;
     }
 
-    // Запоминаем username — пригодится если пользователь авторизуется с этой страницы
     setPendingProfileUsername(username);
-
-    // Сбрасываем старый чужой профиль чтобы не было вспышки старых данных
     setViewedProfile(null);
     setLoadingProfile(true);
     setViewingOwnProfile(false);
@@ -234,9 +221,7 @@ export default function App() {
     }
   };
 
-  /** Сохранение изменений профиля — обновляем currentUser, userProfile и все посты */
   const handleProfileUpdated = (updatedUser: AuthUser) => {
-    // Cache-buster только для реальных URL, не для data: URI
     const rawAvatar = updatedUser.avatar || '';
     const avatarUrl = rawAvatar && !rawAvatar.startsWith('data:') && !rawAvatar.includes('?v=')
       ? `${rawAvatar}?v=${Date.now()}`
@@ -245,7 +230,6 @@ export default function App() {
     const patchedUser = { ...updatedUser, avatar: avatarUrl };
     setCurrentUser(patchedUser);
 
-    // Синхронизируем userProfile
     setUserProfile((prev) =>
       prev
         ? {
@@ -254,7 +238,6 @@ export default function App() {
             username: `@${updatedUser.username}`,
             avatar: avatarUrl,
             bio: updatedUser.bio || '',
-            // Обновляем аватар и username в постах профиля
             posts: prev.posts.map((p) =>
               p.author.username === prev.username || p.author.username === `@${prev.username.replace('@', '')}`
                 ? {
@@ -272,7 +255,6 @@ export default function App() {
         : prev
     );
 
-    // Синхронизируем аватар и имя автора во всех постах ленты
     if (currentUser) {
       const oldUsername = currentUser.username;
       setPosts((prev) =>
@@ -297,20 +279,20 @@ export default function App() {
     setToastMessage('Профиль обновлён!');
     setShowToast(true);
   };
+
   const openCreatePostWithBoard = (boardId: string) => {
     setCreatePostInitialBoardId(boardId);
     setShowCreatePost(true);
   };
+
   const refreshBoardsAndProfile = React.useCallback(async () => {
-    // Обновляем доски
     try {
       const freshBoards = await boardsApi.getAll(10);
       setBoards(freshBoards);
     } catch (error) {
       console.error('Failed to refresh boards:', error);
     }
-    
-    // Если мы на странице своего профиля — обновляем профиль
+
     if (currentUser && viewingOwnProfile) {
       try {
         const freshProfile = await usersApi.getProfile(currentUser.username);
@@ -319,17 +301,16 @@ export default function App() {
         console.error('Failed to refresh profile:', error);
       }
     }
-    
+
     if (currentUser) {
       try {
         const myPosts = await postsApi.getMyPosts();
         setUserProfile((prev) => prev ? { ...prev, posts: myPosts } : prev);
-        
-        // Также обновляем ленту
+
         const freshFeed = await postsApi.getFeed(1);
         const raw = currentUser.avatar || '';
-        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') 
-          ? `${raw}?v=${Date.now()}` 
+        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=')
+          ? `${raw}?v=${Date.now()}`
           : raw;
         setPosts(patchPostsWithCurrentUser(freshFeed, currentUser, av));
       } catch (error) {
@@ -354,15 +335,17 @@ export default function App() {
   const handlePostCreated = () => {
     setToastMessage('Пост опубликован!');
     setShowToast(true);
+
     postsApi.getFeed(1).then((feed) => {
       if (currentUser) {
         const raw = currentUser.avatar || '';
-        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') ? raw : raw;
+        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') ? `${raw}?v=${Date.now()}` : raw;
         setPosts(patchPostsWithCurrentUser(feed, currentUser, av));
       } else {
         setPosts(feed);
       }
     }).catch(() => {});
+
     if (userProfile && currentUser) {
       postsApi.getMyPosts().then((myPosts) => {
         setUserProfile((prev) => (prev ? { ...prev, posts: myPosts } : prev));
@@ -379,14 +362,17 @@ export default function App() {
     setShowToast(true);
   };
 
-  // ── Фильтрация постов ─────────────────────────────────────────────────────
-  const filteredPosts =
-    selectedMoodFilter === 'all' ? posts : posts.filter((p) => p.mood === selectedMoodFilter);
+  // ── Фильтрация постов в ленте (исправлено) ─────────────────────────────────
+  const filteredPosts = React.useMemo(() => {
+    if (selectedMoodFilter === 'all') {
+      return posts;
+    }
+    return posts.filter((p) => p.mood === selectedMoodFilter);
+  }, [posts, selectedMoodFilter]);
 
   const leftBoards = boards.filter((_, i) => i % 2 === 0);
   const rightBoards = boards.filter((_, i) => i % 2 !== 0);
 
-  // ── Какой профиль показывать ──────────────────────────────────────────────
   const activeProfile = viewingOwnProfile ? userProfile : viewedProfile;
   const isOwnProfile = viewingOwnProfile;
 
@@ -410,12 +396,8 @@ export default function App() {
           setToastMessage('Доска создана!');
           setShowToast(true);
           loadBoards();
-
-          
-          // Обновляем доски
           await refreshBoardsAndProfile();
-          
-          // 👇 Важно: обновляем посты в ленте, чтобы у выбранных постов появился sourceBoard
+
           try {
             const freshFeed = await postsApi.getFeed(1);
             if (currentUser) {
@@ -533,10 +515,6 @@ export default function App() {
             onRequireAuth={() => setShowAuthModal(true)}
             onUserClick={handleNavigateToUser}
             currentLoggedInUsername={currentUser?.username}
-            onViewAllBoards={() => {
-              // Загружаем доски профиля и переходим на первую
-              // ProfilePage управляет табами сам — просто переключаем вкладку через проп
-            }}
           />
         ) : (
           <div className="flex items-center justify-center h-64 text-gray-500">
@@ -544,7 +522,6 @@ export default function App() {
           </div>
         )
       ) : currentView === 'board' && selectedBoard ? (
-        // App.tsx
         <BoardView
           board={selectedBoard}
           posts={posts.filter((p) => p.sourceBoard?.id === selectedBoard.id)}
@@ -559,21 +536,15 @@ export default function App() {
           onCreatePostWithBoard={openCreatePostWithBoard}
           onBoardUpdated={refreshBoardsAndProfile}
           onBoardDeleted={async () => {
-            // 👇 Сначала обновляем данные
             await refreshBoardsAndProfile();
-            
-            // 👇 Потом возвращаемся на предыдущий экран
             if (previousView === 'profile') {
               navigateTo('profile');
             } else {
               navigateTo('feed');
             }
-            
-            // Показываем уведомление
             setToastMessage('Доска удалена');
             setShowToast(true);
           }}
-
         />
       ) : currentView === 'post' && selectedPost ? (
         <PostDetailView
@@ -708,8 +679,14 @@ export default function App() {
                         <PostCard
                           key={post.id}
                           post={post}
-                          onClick={() => { setPreviousView(currentView === 'profile' ? 'profile' : currentView === 'board' ? 'board' : 'feed'); setSelectedPost(post); setCurrentView('post'); }}
+                          onClick={() => { 
+                            setPreviousView(currentView === 'profile' ? 'profile' : currentView === 'board' ? 'board' : 'feed'); 
+                            setSelectedPost(post); 
+                            setCurrentView('post'); 
+                          }}
                           onDelete={handlePostDeleted}
+                          onRequireAuth={() => setShowAuthModal(true)}
+                          currentUsername={currentUser?.username}
                         />
                       ))
                     ) : (

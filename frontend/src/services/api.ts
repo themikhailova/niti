@@ -221,6 +221,14 @@ export const postsApi = {
     const data = await apiFetch<{ posts: Post[] }>(`/users/${username}/posts`);
     return data.posts;
   },
+
+  async repost(postId: string | number): Promise<Post> {
+    return apiFetch(`/posts/${postId}/repost`, { method: 'POST' });
+  },
+
+  async savePost(postId: string | number): Promise<{ saved: boolean; saves_count: number }> {
+    return apiFetch(`/posts/${postId}/save`, { method: 'POST' });
+  },
 };
 
 // ============================================================

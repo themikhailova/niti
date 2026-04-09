@@ -160,7 +160,6 @@ def create_board():
         ).update({'board_id': board.id}, synchronize_session=False)
 
     db.session.commit()
-    db.session.commit()
     return jsonify(board_to_dict(board, current_user)), 201
 
 @api_bp.route('/boards/<int:board_id>/posts', methods=['POST'])

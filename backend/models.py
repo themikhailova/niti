@@ -7,12 +7,13 @@ models.py — SQLAlchemy модели.
   + Comment
   + Reaction
 """
-from datetime import datetime
 import enum
+import re
+from datetime import datetime
+
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
-from werkzeug.security import generate_password_hash, check_password_hash
-import re
+from werkzeug.security import check_password_hash, generate_password_hash
 
 convention = {
     "ix": "ix_%(column_0_label)s",
@@ -280,7 +281,10 @@ class Post(db.Model):
 
     user_id  = db.Column(db.Integer, db.ForeignKey('user.id'),  nullable=False, index=True)
     board_id = db.Column(db.Integer, db.ForeignKey('board.id'), nullable=True,  index=True)
-    
+
+    # Репосты / сохранения
+    post_kind        = db.Column(db.String(10), nullable=True)           # None | 'repost' | 'saved'
+    original_post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=True)
 
     tags = db.relationship('Tag', secondary=post_tags, lazy='subquery',
                            backref=db.backref('posts', lazy=True))
@@ -314,7 +318,7 @@ class Comment(db.Model):
 
     post_id = db.Column(
         db.Integer,
-        db.ForeignKey('post.id', ondelete='CASCADE'),
+        db.ForeignKey('post.id', ondelete='CASCADE'), 
         nullable=False,
         index=True,
     )
