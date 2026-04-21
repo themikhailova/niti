@@ -377,7 +377,7 @@ export default function App() {
   const isOwnProfile = viewingOwnProfile;
 
   return (
-    <div className="min-h-screen bg-blue-50/30">
+    <div className="h-screen overflow-hidden bg-blue-50/30 flex flex-col">
       {/* Modals */}
       <CreatePostModal
         isOpen={showCreatePost}
@@ -568,11 +568,11 @@ export default function App() {
         <NotificationsPage onClose={() => navigateTo(previousView)} />
       ) : (
         <>
-          <div className="max-w-[1800px] mx-auto px-6 py-8">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="max-w-[1800px] mx-auto px-6 py-8 h-full overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full">
 
               {/* Left Sidebar */}
-              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6">
+              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6 overflow-y-auto">
                 <div className="sticky top-24">
                   <h2 className="text-sm font-semibold text-blue-900/60 uppercase tracking-wide mb-4 px-1">
                     Рекомендуемые доски
@@ -595,7 +595,7 @@ export default function App() {
               </aside>
 
               {/* Center Feed */}
-              <main className="lg:col-span-6 bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm p-8 -mx-6">
+              <main className="lg:col-span-6 bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm p-8 -mx-6 overflow-y-auto">
                 <div className="max-w-2xl mx-auto">
                   <div className="mb-6">
                     <div className="flex items-start justify-between mb-4">
@@ -727,7 +727,7 @@ export default function App() {
               </main>
 
               {/* Right Sidebar */}
-              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6">
+              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6 overflow-y-auto">
                 <div className="sticky top-24">
                   <h2 className="text-sm font-semibold text-blue-900/60 uppercase tracking-wide mb-4 px-1">
                     В тренде

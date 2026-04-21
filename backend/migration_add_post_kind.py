@@ -45,4 +45,4 @@ def run():
 if __name__ == '__main__':
     from app import app
     with app.app_context():
-        run()cd
+        run()
