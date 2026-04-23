@@ -16,8 +16,10 @@ import { NotificationsPage } from './components/NotificationsPage';
 import { Toast } from './components/toast';
 import { moodConfigs, type MoodType, type Board, type Post, type UserProfile } from './data/mock-data';
 
+// Высота шапки — для calc() в колонках фида
+const HEADER_H = 73;
+
 export default function App() {
-  // Читаем начальный view из hash
   const getViewFromHash = (): 'feed' | 'profile' | 'board' | 'post' | 'notifications' => {
     const hash = window.location.hash.replace('#', '');
     if (['feed', 'profile', 'notifications'].includes(hash)) {
@@ -37,41 +39,11 @@ export default function App() {
   const [showMoodFilter, setShowMoodFilter] = React.useState(false);
   const [showToast, setShowToast] = React.useState(false);
   const [toastMessage, setToastMessage] = React.useState('');
-
   const [hasUnreadNotifications] = React.useState(true);
-
   const [currentUser, setCurrentUser] = React.useState<AuthUser | null>(null);
   const [showAuthModal, setShowAuthModal] = React.useState(false);
   const isAuthenticated = currentUser !== null;
 
-  /**
-   * Патчит аватар и имя автора в массиве постов для текущего пользователя.
-   */
-  const patchPostsWithCurrentUser = React.useCallback(
-    (postsArr: Post[], user: AuthUser, avatarUrl: string): Post[] =>
-      postsArr.map((p) => {
-        if (p.author.username.replace('@', '') === user.username) {
-          return {
-            ...p,
-            author: { ...p.author, avatar: avatarUrl, name: user.username, username: `@${user.username}` },
-          };
-        }
-        return p;
-      }),
-    []
-  );
-
-  const navigateTo = React.useCallback(
-    (view: 'feed' | 'profile' | 'board' | 'post' | 'notifications') => {
-      setCurrentView(view);
-      if (view === 'feed' || view === 'profile' || view === 'notifications') {
-        window.history.replaceState(null, '', `#${view}`);
-      }
-    },
-    []
-  );
-
-  // ── Данные из API ──────────────────────────────────────────────────────────
   const [posts, setPosts] = React.useState<Post[]>([]);
   const [boards, setBoards] = React.useState<Board[]>([]);
   const [recommendedBoards, setRecommendedBoards] = React.useState<Board[]>([]);
@@ -85,20 +57,41 @@ export default function App() {
   const [loadingFeed, setLoadingFeed] = React.useState(true);
   const [loadingBoards, setLoadingBoards] = React.useState(true);
   const [loadingProfile, setLoadingProfile] = React.useState(false);
-
   const [createPostInitialBoardId, setCreatePostInitialBoardId] = React.useState<string | null>(null);
 
-  // ── Восстановление сессии ──────────────────────────────────────────────────
+  const patchPostsWithCurrentUser = React.useCallback(
+    (postsArr: Post[], user: AuthUser, avatarUrl: string): Post[] =>
+      postsArr.map((p) => {
+        if (p.author.username.replace('@', '') === user.username) {
+          return { ...p, author: { ...p.author, avatar: avatarUrl, name: user.username, username: `@${user.username}` } };
+        }
+        return p;
+      }),
+    []
+  );
+
+  const mkAvatar = (user: AuthUser) => {
+    const raw = user.avatar || '';
+    return raw && !raw.startsWith('data:') && !raw.includes('?v=') ? `${raw}?v=${Date.now()}` : raw;
+  };
+
+  const navigateTo = React.useCallback(
+    (view: 'feed' | 'profile' | 'board' | 'post' | 'notifications') => {
+      setCurrentView(view);
+      if (view === 'feed' || view === 'profile' || view === 'notifications') {
+        window.history.replaceState(null, '', `#${view}`);
+      }
+    },
+    []
+  );
+
   React.useEffect(() => {
     const init = async () => {
       setLoadingFeed(true);
       const user = await authApi.restoreSession().catch(() => null);
       if (user) {
         setCurrentUser(user);
-        const hash = window.location.hash.replace('#', '');
-        if (hash === 'profile') {
-          setViewingOwnProfile(true);
-        }
+        if (window.location.hash.replace('#', '') === 'profile') setViewingOwnProfile(true);
       } else {
         const hash = window.location.hash.replace('#', '');
         if (hash === 'profile' || hash === 'notifications') {
@@ -108,14 +101,7 @@ export default function App() {
       }
       try {
         const feed = await postsApi.getFeed(1);
-        if (user) {
-          const raw = user.avatar || '';
-          const av = raw && !raw.startsWith('data:') && !raw.includes('?v=')
-            ? `${raw}?v=${Date.now()}` : raw;
-          setPosts(patchPostsWithCurrentUser(feed, user, av));
-        } else {
-          setPosts(feed);
-        }
+        setPosts(user ? patchPostsWithCurrentUser(feed, user, mkAvatar(user)) : feed);
       } catch {
         setPosts([]);
       } finally {
@@ -125,7 +111,6 @@ export default function App() {
     init();
   }, []);
 
-  // ── Загрузка досок ─────────────────────────────────────────────────────────
   const loadBoards = React.useCallback(() => {
     setLoadingBoards(true);
     Promise.all([
@@ -135,20 +120,16 @@ export default function App() {
       setRecommendedBoards(rec);
       setTrendingBoards(trend);
       const seen = new Set<string>();
-      const all = [...rec, ...trend].filter(b => {
+      setBoards([...rec, ...trend].filter(b => {
         if (seen.has(b.id)) return false;
         seen.add(b.id);
         return true;
-      });
-      setBoards(all);
+      }));
     }).finally(() => setLoadingBoards(false));
   }, []);
 
-  React.useEffect(() => {
-    loadBoards();
-  }, [loadBoards]);
+  React.useEffect(() => { loadBoards(); }, [loadBoards]);
 
-  // ── Загрузка своего профиля ────────────────────────────────────────────────
   React.useEffect(() => {
     if (currentView === 'profile' && viewingOwnProfile && currentUser && !userProfile) {
       setLoadingProfile(true);
@@ -159,30 +140,16 @@ export default function App() {
     }
   }, [currentView, currentUser, userProfile, viewingOwnProfile]);
 
-  // ── Обработчики ────────────────────────────────────────────────────────────
   const handleAuthSuccess = (user: AuthUser) => {
     setCurrentUser(user);
     setShowAuthModal(false);
-
-    postsApi.getFeed(1).then((feed) => {
-      if (user) {
-        const raw = user.avatar || '';
-        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') ? `${raw}?v=${Date.now()}` : raw;
-        setPosts(patchPostsWithCurrentUser(feed, user, av));
-      } else {
-        setPosts(feed);
-      }
-    }).catch(() => {});
-
+    const av = mkAvatar(user);
+    postsApi.getFeed(1).then((feed) => setPosts(patchPostsWithCurrentUser(feed, user, av))).catch(() => {});
     if (pendingProfileUsername) {
       const pending = pendingProfileUsername;
       setPendingProfileUsername(null);
-      if (pending === user.username) {
-        setViewingOwnProfile(true);
-        navigateTo('profile');
-      } else {
-        handleNavigateToUser(pending);
-      }
+      if (pending === user.username) { setViewingOwnProfile(true); navigateTo('profile'); }
+      else handleNavigateToUser(pending);
     }
   };
 
@@ -201,16 +168,13 @@ export default function App() {
       navigateTo('profile');
       return;
     }
-
     setPendingProfileUsername(username);
     setViewedProfile(null);
     setLoadingProfile(true);
     setViewingOwnProfile(false);
     navigateTo('profile');
-
     try {
-      const profile = await usersApi.getProfile(username);
-      setViewedProfile(profile);
+      setViewedProfile(await usersApi.getProfile(username));
     } catch {
       setToastMessage('Не удалось загрузить профиль');
       setShowToast(true);
@@ -222,60 +186,30 @@ export default function App() {
   };
 
   const handleProfileUpdated = (updatedUser: AuthUser) => {
-    const rawAvatar = updatedUser.avatar || '';
-    const avatarUrl = rawAvatar && !rawAvatar.startsWith('data:') && !rawAvatar.includes('?v=')
-      ? `${rawAvatar}?v=${Date.now()}`
-      : rawAvatar;
-
-    const patchedUser = { ...updatedUser, avatar: avatarUrl };
-    setCurrentUser(patchedUser);
-
+    const av = mkAvatar(updatedUser);
+    setCurrentUser({ ...updatedUser, avatar: av });
     setUserProfile((prev) =>
-      prev
-        ? {
-            ...prev,
-            displayName: updatedUser.username,
-            username: `@${updatedUser.username}`,
-            avatar: avatarUrl,
-            bio: updatedUser.bio || '',
-            posts: prev.posts.map((p) =>
-              p.author.username === prev.username || p.author.username === `@${prev.username.replace('@', '')}`
-                ? {
-                    ...p,
-                    author: {
-                      ...p.author,
-                      avatar: avatarUrl,
-                      name: updatedUser.username,
-                      username: `@${updatedUser.username}`,
-                    },
-                  }
-                : p
-            ),
-          }
-        : prev
+      prev ? {
+        ...prev,
+        displayName: updatedUser.username,
+        username: `@${updatedUser.username}`,
+        avatar: av,
+        bio: updatedUser.bio || '',
+        posts: prev.posts.map((p) =>
+          p.author.username === prev.username || p.author.username === `@${prev.username.replace('@', '')}`
+            ? { ...p, author: { ...p.author, avatar: av, name: updatedUser.username, username: `@${updatedUser.username}` } }
+            : p
+        ),
+      } : prev
     );
-
     if (currentUser) {
-      const oldUsername = currentUser.username;
-      setPosts((prev) =>
-        prev.map((p) => {
-          const postUsername = p.author.username.replace('@', '');
-          if (postUsername === oldUsername) {
-            return {
-              ...p,
-              author: {
-                ...p.author,
-                avatar: avatarUrl,
-                name: updatedUser.username,
-                username: `@${updatedUser.username}`,
-              },
-            };
-          }
-          return p;
-        })
-      );
+      const old = currentUser.username;
+      setPosts((prev) => prev.map((p) =>
+        p.author.username.replace('@', '') === old
+          ? { ...p, author: { ...p.author, avatar: av, name: updatedUser.username, username: `@${updatedUser.username}` } }
+          : p
+      ));
     }
-
     setToastMessage('Профиль обновлён!');
     setShowToast(true);
   };
@@ -286,45 +220,27 @@ export default function App() {
   };
 
   const refreshBoardsAndProfile = React.useCallback(async () => {
-    try {
-      const freshBoards = await boardsApi.getAll(10);
-      setBoards(freshBoards);
-    } catch (error) {
-      console.error('Failed to refresh boards:', error);
-    }
-
+    try { setBoards(await boardsApi.getAll(10)); } catch {}
     if (currentUser && viewingOwnProfile) {
-      try {
-        const freshProfile = await usersApi.getProfile(currentUser.username);
-        setUserProfile(freshProfile);
-      } catch (error) {
-        console.error('Failed to refresh profile:', error);
-      }
+      try { setUserProfile(await usersApi.getProfile(currentUser.username)); } catch {}
     }
-
     if (currentUser) {
       try {
         const myPosts = await postsApi.getMyPosts();
         setUserProfile((prev) => prev ? { ...prev, posts: myPosts } : prev);
-
         const freshFeed = await postsApi.getFeed(1);
-        const raw = currentUser.avatar || '';
-        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=')
-          ? `${raw}?v=${Date.now()}`
-          : raw;
-        setPosts(patchPostsWithCurrentUser(freshFeed, currentUser, av));
-      } catch (error) {
-        console.error('Failed to refresh user posts:', error);
-      }
+        setPosts(patchPostsWithCurrentUser(freshFeed, currentUser, mkAvatar(currentUser)));
+      } catch {}
     }
   }, [currentUser, viewingOwnProfile]);
 
   const handleFollow = async (boardId: string) => {
     try {
       await boardsApi.follow(boardId);
-      setBoards((prev) =>
-        prev.map((b) => (b.id === boardId ? { ...b, isFollowing: true, followers: b.followers + 1 } : b))
-      );
+      const patch = (b: Board) => b.id === boardId ? { ...b, isFollowing: true, followers: b.followers + 1 } : b;
+      setBoards(p => p.map(patch));
+      setRecommendedBoards(p => p.map(patch));
+      setTrendingBoards(p => p.map(patch));
       setToastMessage('Подписка оформлена!');
     } catch {
       setToastMessage('Не удалось подписаться');
@@ -335,56 +251,45 @@ export default function App() {
   const handlePostCreated = () => {
     setToastMessage('Пост опубликован!');
     setShowToast(true);
-
     postsApi.getFeed(1).then((feed) => {
-      if (currentUser) {
-        const raw = currentUser.avatar || '';
-        const av = raw && !raw.startsWith('data:') && !raw.includes('?v=') ? `${raw}?v=${Date.now()}` : raw;
-        setPosts(patchPostsWithCurrentUser(feed, currentUser, av));
-      } else {
-        setPosts(feed);
-      }
+      setPosts(currentUser ? patchPostsWithCurrentUser(feed, currentUser, mkAvatar(currentUser)) : feed);
     }).catch(() => {});
-
     if (userProfile && currentUser) {
       postsApi.getMyPosts().then((myPosts) => {
-        setUserProfile((prev) => (prev ? { ...prev, posts: myPosts } : prev));
+        setUserProfile((prev) => prev ? { ...prev, posts: myPosts } : prev);
       }).catch(() => {});
     }
   };
 
   const handlePostDeleted = (postId: string) => {
     setPosts((prev) => prev.filter((p) => p.id !== postId));
-    setUserProfile((prev) =>
-      prev ? { ...prev, posts: prev.posts.filter((p) => p.id !== postId) } : prev
-    );
+    setUserProfile((prev) => prev ? { ...prev, posts: prev.posts.filter((p) => p.id !== postId) } : prev);
     setToastMessage('Пост удалён');
     setShowToast(true);
   };
 
-  // ── Фильтрация постов в ленте (исправлено) ─────────────────────────────────
-  const filteredPosts = React.useMemo(() => {
-    if (selectedMoodFilter === 'all') {
-      return posts;
-    }
-    return posts.filter((p) => p.mood === selectedMoodFilter);
-  }, [posts, selectedMoodFilter]);
-
-  const leftBoards = boards.filter((_, i) => i % 2 === 0);
-  const rightBoards = boards.filter((_, i) => i % 2 !== 0);
+  const filteredPosts = React.useMemo(() =>
+    selectedMoodFilter === 'all' ? posts : posts.filter((p) => p.mood === selectedMoodFilter),
+    [posts, selectedMoodFilter]
+  );
 
   const activeProfile = viewingOwnProfile ? userProfile : viewedProfile;
-  const isOwnProfile = viewingOwnProfile;
+
+  // Стиль для колонок фида с независимым скроллом
+  const colStyle: React.CSSProperties = {
+    height: `calc(100vh - ${HEADER_H}px)`,
+    overflowY: 'auto',
+    scrollbarWidth: 'thin',
+  };
 
   return (
-    <div className="h-screen overflow-hidden bg-blue-50/30 flex flex-col">
+    // ↓ min-h-screen без overflow-hidden — профиль/доска/уведомления скроллятся нормально
+    <div className="min-h-screen bg-blue-50/30">
+
       {/* Modals */}
       <CreatePostModal
         isOpen={showCreatePost}
-        onClose={() => {
-          setShowCreatePost(false);
-          setCreatePostInitialBoardId(null);
-        }}
+        onClose={() => { setShowCreatePost(false); setCreatePostInitialBoardId(null); }}
         onSuccess={handlePostCreated}
         initialBoardId={createPostInitialBoardId}
         currentUsername={currentUser?.username}
@@ -397,21 +302,10 @@ export default function App() {
           setShowToast(true);
           loadBoards();
           await refreshBoardsAndProfile();
-
           try {
             const freshFeed = await postsApi.getFeed(1);
-            if (currentUser) {
-              const raw = currentUser.avatar || '';
-              const av = raw && !raw.startsWith('data:') && !raw.includes('?v=')
-                ? `${raw}?v=${Date.now()}`
-                : raw;
-              setPosts(patchPostsWithCurrentUser(freshFeed, currentUser, av));
-            } else {
-              setPosts(freshFeed);
-            }
-          } catch (error) {
-            console.error('Failed to refresh feed:', error);
-          }
+            setPosts(currentUser ? patchPostsWithCurrentUser(freshFeed, currentUser, mkAvatar(currentUser)) : freshFeed);
+          } catch {}
         }}
       />
       <SearchModal
@@ -427,21 +321,15 @@ export default function App() {
         onRequireAuth={() => setShowAuthModal(true)}
       />
 
-      {/* Top Navigation */}
+      {/* Header — sticky поверх всего */}
       <header className="sticky top-0 z-50 bg-white border-b border-blue-100 shadow-sm">
         <div className="max-w-[1800px] mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-8">
-              <h1
-                className="text-2xl font-bold text-gray-900 cursor-pointer"
-                onClick={() => navigateTo('feed')}
-              >
+              <h1 className="text-2xl font-bold text-gray-900 cursor-pointer" onClick={() => navigateTo('feed')}>
                 НИТИ
               </h1>
-              <button
-                onClick={() => setShowSearch(true)}
-                className="relative w-96 hidden lg:block text-left"
-              >
+              <button onClick={() => setShowSearch(true)} className="relative w-96 hidden lg:block text-left">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
                 <div className="w-full pl-10 pr-4 py-2 bg-blue-50/50 border border-blue-100 rounded-lg hover:bg-white hover:border-blue-200 transition-all text-gray-500 cursor-pointer">
                   Поиск досок, тем, авторов...
@@ -449,21 +337,11 @@ export default function App() {
               </button>
             </div>
             <nav className="flex items-center gap-6">
-              <button
-                onClick={() => navigateTo('feed')}
-                className={`p-2 rounded-lg transition-colors ${currentView === 'feed' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'}`}
-              >
+              <button onClick={() => navigateTo('feed')} className={`p-2 rounded-lg transition-colors ${currentView === 'feed' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'}`}>
                 <Home className="w-6 h-6" />
               </button>
               <button
-                onClick={() => {
-                  if (isAuthenticated) {
-                    setViewingOwnProfile(true);
-                    navigateTo('profile');
-                  } else {
-                    setShowAuthModal(true);
-                  }
-                }}
+                onClick={() => { if (isAuthenticated) { setViewingOwnProfile(true); navigateTo('profile'); } else setShowAuthModal(true); }}
                 className={`p-2 rounded-lg transition-colors ${currentView === 'profile' ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-50 text-gray-700'}`}
               >
                 <User className="w-6 h-6" />
@@ -478,11 +356,7 @@ export default function App() {
                 )}
               </button>
               {isAuthenticated && (
-                <button
-                  onClick={handleLogout}
-                  title="Выйти"
-                  className="p-2 rounded-lg transition-colors hover:bg-red-50 text-gray-500 hover:text-red-500"
-                >
+                <button onClick={handleLogout} title="Выйти" className="p-2 rounded-lg transition-colors hover:bg-red-50 text-gray-500 hover:text-red-500">
                   <LogOut className="w-5 h-5" />
                 </button>
               )}
@@ -491,25 +365,19 @@ export default function App() {
         </div>
       </header>
 
-      {/* Views */}
-      {currentView === 'profile' ? (
+      {/* ── Профиль: обычный скролл страницы ── */}
+      {currentView === 'profile' && (
         loadingProfile ? (
-          <div className="flex items-center justify-center h-64 text-gray-500">
-            Загрузка профиля...
-          </div>
+          <div className="flex items-center justify-center h-64 text-gray-500">Загрузка профиля...</div>
         ) : activeProfile ? (
           <ProfilePage
             profile={activeProfile}
-            isOwnProfile={isOwnProfile}
+            isOwnProfile={viewingOwnProfile}
             isAuthenticated={isAuthenticated}
             onCreatePost={() => setShowCreatePost(true)}
             onCreateBoard={() => setShowCreateBoard(true)}
-            onBoardClick={(board) => { 
-              setPreviousView('profile'); 
-              setSelectedBoard(board); 
-              setCurrentView('board'); 
-            }}
-            onPostClick={(post) => { setPreviousView(currentView === 'board' ? 'board' : currentView === 'profile' ? 'profile' : 'feed'); setSelectedPost(post); setCurrentView('post'); }}
+            onBoardClick={(board) => { setPreviousView('profile'); setSelectedBoard(board); setCurrentView('board'); }}
+            onPostClick={(post) => { setPreviousView('profile'); setSelectedPost(post); setCurrentView('post'); }}
             onPostDeleted={handlePostDeleted}
             onProfileUpdated={handleProfileUpdated}
             onRequireAuth={() => setShowAuthModal(true)}
@@ -521,32 +389,30 @@ export default function App() {
             {currentUser ? 'Не удалось загрузить профиль' : 'Войдите чтобы увидеть профиль'}
           </div>
         )
-      ) : currentView === 'board' && selectedBoard ? (
+      )}
+
+      {/* ── Доска: обычный скролл страницы ── */}
+      {currentView === 'board' && selectedBoard && (
         <BoardView
           board={selectedBoard}
           posts={posts.filter((p) => p.sourceBoard?.id === selectedBoard.id)}
           onBack={() => navigateTo('feed')}
           onFollowToggle={async (boardId) => { await handleFollow(boardId); }}
-          onPostClick={(post) => { 
-            setPreviousView(currentView === 'board' ? 'board' : currentView === 'profile' ? 'profile' : 'feed'); 
-            setSelectedPost(post); 
-            setCurrentView('post'); 
-          }}
+          onPostClick={(post) => { setPreviousView('board'); setSelectedPost(post); setCurrentView('post'); }}
           currentUsername={currentUser?.username}
           onCreatePostWithBoard={openCreatePostWithBoard}
           onBoardUpdated={refreshBoardsAndProfile}
           onBoardDeleted={async () => {
             await refreshBoardsAndProfile();
-            if (previousView === 'profile') {
-              navigateTo('profile');
-            } else {
-              navigateTo('feed');
-            }
+            navigateTo(previousView === 'profile' ? 'profile' : 'feed');
             setToastMessage('Доска удалена');
             setShowToast(true);
           }}
         />
-      ) : currentView === 'post' && selectedPost ? (
+      )}
+
+      {/* ── Пост: обычный скролл страницы ── */}
+      {currentView === 'post' && selectedPost && (
         <PostDetailView
           post={selectedPost}
           onClose={() => navigateTo(previousView)}
@@ -557,23 +423,27 @@ export default function App() {
             if (found) { setSelectedBoard(found); setCurrentView('board'); }
           }}
           onAuthorClick={(username) => handleNavigateToUser(username)}
-          relatedPosts={posts
-            .filter((p) => p.id !== selectedPost.id && p.sourceBoard?.id === selectedPost.sourceBoard?.id)
-            .slice(0, 4)}
+          relatedPosts={posts.filter((p) => p.id !== selectedPost.id && p.sourceBoard?.id === selectedPost.sourceBoard?.id).slice(0, 4)}
           isAuthenticated={isAuthenticated}
           currentUsername={currentUser?.username}
           onRequireAuth={() => setShowAuthModal(true)}
         />
-      ) : currentView === 'notifications' ? (
+      )}
+
+      {/* ── Уведомления: обычный скролл страницы ── */}
+      {currentView === 'notifications' && (
         <NotificationsPage onClose={() => navigateTo(previousView)} />
-      ) : (
+      )}
+
+      {/* ── Фид: три независимо скроллируемые колонки ── */}
+      {currentView === 'feed' && (
         <>
-          <div className="max-w-[1800px] mx-auto px-6 py-8 h-full overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full">
+          <div className="max-w-[1800px] mx-auto px-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-0">
 
               {/* Left Sidebar */}
-              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6 overflow-y-auto">
-                <div className="sticky top-24">
+              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40" style={colStyle}>
+                <div className="p-6">
                   <h2 className="text-sm font-semibold text-blue-900/60 uppercase tracking-wide mb-4 px-1">
                     Рекомендуемые доски
                   </h2>
@@ -595,8 +465,8 @@ export default function App() {
               </aside>
 
               {/* Center Feed */}
-              <main className="lg:col-span-6 bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm p-8 -mx-6 overflow-y-auto">
-                <div className="max-w-2xl mx-auto">
+              <main className="lg:col-span-6 bg-white/80 backdrop-blur-sm shadow-sm" style={colStyle}>
+                <div className="max-w-2xl mx-auto p-8">
                   <div className="mb-6">
                     <div className="flex items-start justify-between mb-4">
                       <button
@@ -613,31 +483,21 @@ export default function App() {
                       <button
                         onClick={() => setShowMoodFilter(!showMoodFilter)}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                          selectedMoodFilter !== 'all'
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-300 hover:border-gray-400 text-gray-700'
+                          selectedMoodFilter !== 'all' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 hover:border-gray-400 text-gray-700'
                         }`}
                       >
                         <Filter className="w-4 h-4" />
                         <span className="font-medium text-sm">
-                          {selectedMoodFilter === 'all'
-                            ? 'Настроить ленту'
-                            : `Настроение: ${moodConfigs[selectedMoodFilter].label}`}
+                          {selectedMoodFilter === 'all' ? 'Настроить ленту' : `Настроение: ${moodConfigs[selectedMoodFilter].label}`}
                         </span>
-                        {selectedMoodFilter !== 'all' && (
-                          <span className="text-lg">{moodConfigs[selectedMoodFilter].emoji}</span>
-                        )}
+                        {selectedMoodFilter !== 'all' && <span className="text-lg">{moodConfigs[selectedMoodFilter].emoji}</span>}
                       </button>
                       {showMoodFilter && (
                         <div className="mt-2 p-3 bg-white border border-gray-200 rounded-lg shadow-lg">
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             <button
                               onClick={() => { setSelectedMoodFilter('all'); setShowMoodFilter(false); }}
-                              className={`p-3 rounded-lg border transition-all text-center ${
-                                selectedMoodFilter === 'all'
-                                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                  : 'border-gray-200 hover:border-gray-300'
-                              }`}
+                              className={`p-3 rounded-lg border transition-all text-center ${selectedMoodFilter === 'all' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300'}`}
                             >
                               <span className="font-medium text-sm">Все</span>
                             </button>
@@ -648,16 +508,11 @@ export default function App() {
                                 <button
                                   key={moodKey}
                                   onClick={() => { setSelectedMoodFilter(moodKey); setShowMoodFilter(false); }}
-                                  className={`p-3 rounded-lg border transition-all ${
-                                    isSelected ? `${mood.borderColor} ${mood.lightBg}` : 'border-gray-200 hover:border-gray-300'
-                                  }`}
+                                  className={`p-3 rounded-lg border transition-all ${isSelected ? `${mood.borderColor} ${mood.lightBg}` : 'border-gray-200 hover:border-gray-300'}`}
                                 >
                                   <div className="flex flex-col items-center gap-1">
                                     <span className="text-xl">{mood.emoji}</span>
-                                    <span
-                                      className="font-medium text-xs"
-                                      style={{ color: isSelected ? mood.color : undefined }}
-                                    >
+                                    <span className="font-medium text-xs" style={{ color: isSelected ? mood.color : undefined }}>
                                       {mood.label}
                                     </span>
                                   </div>
@@ -679,11 +534,7 @@ export default function App() {
                         <PostCard
                           key={post.id}
                           post={post}
-                          onClick={() => { 
-                            setPreviousView(currentView === 'profile' ? 'profile' : currentView === 'board' ? 'board' : 'feed'); 
-                            setSelectedPost(post); 
-                            setCurrentView('post'); 
-                          }}
+                          onClick={() => { setPreviousView('feed'); setSelectedPost(post); setCurrentView('post'); }}
                           onDelete={handlePostDeleted}
                           onRequireAuth={() => setShowAuthModal(true)}
                           currentUsername={currentUser?.username}
@@ -692,15 +543,10 @@ export default function App() {
                     ) : (
                       <div className="text-center py-12">
                         <p className="text-gray-500 text-lg">
-                          {selectedMoodFilter !== 'all'
-                            ? 'Постов с таким настроением нет'
-                            : 'Постов пока нет. Создайте первый!'}
+                          {selectedMoodFilter !== 'all' ? 'Постов с таким настроением нет' : 'Постов пока нет. Создайте первый!'}
                         </p>
                         {selectedMoodFilter !== 'all' && (
-                          <button
-                            onClick={() => setSelectedMoodFilter('all')}
-                            className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
-                          >
+                          <button onClick={() => setSelectedMoodFilter('all')} className="mt-4 text-blue-600 hover:text-blue-700 font-medium">
                             Сбросить фильтр
                           </button>
                         )}
@@ -711,12 +557,7 @@ export default function App() {
                   {filteredPosts.length > 0 && (
                     <div className="mt-8 text-center">
                       <button
-                        onClick={() =>
-                          postsApi
-                            .getFeed(Math.ceil(posts.length / 20) + 1)
-                            .then((more) => setPosts((prev) => [...prev, ...more]))
-                            .catch(() => {})
-                        }
+                        onClick={() => postsApi.getFeed(Math.ceil(posts.length / 20) + 1).then((more) => setPosts((prev) => [...prev, ...more])).catch(() => {})}
                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
                       >
                         Загрузить ещё
@@ -727,8 +568,8 @@ export default function App() {
               </main>
 
               {/* Right Sidebar */}
-              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40 rounded-2xl p-6 -mx-6 overflow-y-auto">
-                <div className="sticky top-24">
+              <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40" style={colStyle}>
+                <div className="p-6">
                   <h2 className="text-sm font-semibold text-blue-900/60 uppercase tracking-wide mb-4 px-1">
                     В тренде
                   </h2>
@@ -748,10 +589,11 @@ export default function App() {
                   )}
                 </div>
               </aside>
+
             </div>
           </div>
 
-          {/* Mobile Board Discovery */}
+          {/* Mobile */}
           <div className="lg:hidden px-6 pb-8">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Рекомендуемые доски</h2>
             <div className="flex gap-4 overflow-x-auto pb-4 -mx-6 px-6 scrollbar-hide">
