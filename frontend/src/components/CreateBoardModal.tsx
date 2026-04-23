@@ -93,7 +93,7 @@ export function CreateBoardModal({ isOpen, onClose, onSuccess }: CreateBoardModa
         description: description.trim(),
         tags,
         isPublic:    visibility === 'public',
-        coverImage:  coverImage ?? undefined,
+        coverImage:  coverImage ? coverImage : undefined,
         post_ids:    selectedPosts.map(Number),
       });
       

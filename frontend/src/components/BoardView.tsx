@@ -7,6 +7,8 @@ import { EditBoardModal } from './EditBoardModal';
 import type { Board, Post, MoodType } from '../data/mock-data';
 import { moodConfigs } from '../data/mock-data';
 
+import {formatFollowers } from '../utils/helpers';
+
 interface BoardViewProps {
   board: Board;
   posts: Post[];
@@ -86,7 +88,7 @@ export function BoardView({
               <div className="flex items-center gap-4 text-white/90 text-sm lg:text-base">
                 <div className="flex items-center gap-1.5">
                   <Users className="w-4 h-4" />
-                  <span>{((board.followers || 0) / 1000).toFixed(1)}k подписчиков</span>
+                  <span>{formatFollowers(board.followers)} подписчиков</span>
                 </div>
                 <span>•</span>
                 <span>{board.postCount} постов</span>
@@ -197,7 +199,7 @@ export function BoardView({
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Подписчики</span>
-                  <span className="font-semibold text-gray-900">{((board.followers || 0) / 1000).toFixed(1)}k</span>
+                  <span className="font-semibold text-gray-900">{formatFollowers(board.followers)}</span>
                 </div>
                 {board.collaborators > 0 && (
                   <div className="flex items-center justify-between">

@@ -32,3 +32,13 @@ export function formatRelativeDate(isoString: string): string {
 
   return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
+
+export function formatFollowers(count: number | undefined) {
+  if (!count || count <= 0) return '0';
+
+  if (count < 1000) return String(count);
+
+  if (count < 10000) return (count / 1000).toFixed(1) + 'k';
+
+  return Math.floor(count / 1000) + 'k';
+}

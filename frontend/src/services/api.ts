@@ -348,6 +348,17 @@ export const boardsApi = {
     const data = await apiFetch<{ boards: Board[] }>(`/boards/trending?limit=${limit}`);
     return data.boards;
   },
+  
+  async getSubscribed(limit = 6): Promise<Board[]> {
+    if (!tokenStorage.getAccess()) return [];
+    try {
+      const data = await apiFetch<{ boards: Board[] }>(`/boards/subscribed?limit=${limit}`);
+      return data.boards;
+    } catch (error) {
+      console.error('Failed to load subscribed boards:', error);
+      return [];
+    }
+  },
 
   async getByUser(username: string): Promise<Board[]> {
     const data = await apiFetch<{ boards: Board[] }>(`/users/${username}/boards`);

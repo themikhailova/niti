@@ -10,13 +10,9 @@ interface PostCardProps {
   post: Post;
   onClick?: () => void;
   onDelete?: (postId: string) => void;
-  /** Открыть модал авторизации */
   onRequireAuth?: () => void;
-  /** Вызывается после репоста (пост добавлен в ленту профиля) */
   onReposted?: (post: Post) => void;
-  /** Вызывается после сохранения */
   onSaved?: (post: Post) => void;
-  /** Username текущего пользователя (без @) */
   currentUsername?: string;
 }
 
@@ -50,9 +46,14 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
   const [showShareMenu, setShowShareMenu] = React.useState(false);
   const [shareLoading, setShareLoading] = React.useState(false);
   const [saveLoading, setSaveLoading] = React.useState(false);
-  // Инициализируем из данных поста — бэкенд отдаёт is_saved и engagement.saves
   const [saved, setSaved] = React.useState(post.is_saved ?? post.post_kind === 'saved' ?? false);
   const [saveCount, setSaveCount] = React.useState(engagement.saves ?? 0);
+  
+  // ── Состояние для изображения ──────────────────────────────────────────────
+  const [imageError, setImageError] = React.useState(false);
+  
+  // Проверяем, есть ли изображение и не было ли ошибки загрузки
+  const hasImage = content.imageUrl && content.imageUrl.trim() !== '' && !imageError;
 
   const shareMenuRef = React.useRef<HTMLDivElement>(null);
 
@@ -60,6 +61,8 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
   React.useEffect(() => {
     setSaved(post.is_saved ?? post.post_kind === 'saved' ?? false);
     setSaveCount(post.engagement?.saves ?? 0);
+    // Сбрасываем ошибку изображения при смене поста
+    setImageError(false);
   }, [post.id, post.is_saved]);
 
   // Закрываем share-меню при клике снаружи
@@ -192,7 +195,6 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
     try {
       await navigator.clipboard.writeText(url);
     } catch {
-      // fallback
       const ta = document.createElement('textarea');
       ta.value = url;
       document.body.appendChild(ta);
@@ -200,16 +202,14 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    // Уведомление через колбэк App
-    onSaved?.(post); // Переиспользуем onSaved как сигнал — App разберёт по типу
-    // Лучше отдельный колбэк — см. ниже
+    onSaved?.(post);
     if ((window as any).__showCopyToast) (window as any).__showCopyToast();
   };
 
   const handleRepost = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowShareMenu(false);
-    if (isOwnPost) return; // свои посты нельзя репостить
+    if (isOwnPost) return;
     setShareLoading(true);
     try {
       const reposted = await postsApi.repost(post.id);
@@ -228,7 +228,7 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
       onRequireAuth?.();
       return;
     }
-    if (isPrivate) return; // приватные нельзя сохранять
+    if (isPrivate) return;
     if (saveLoading) return;
     setSaveLoading(true);
     try {
@@ -267,7 +267,7 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
               <p className="text-sm text-gray-600">{timestamp}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {post.post_kind === 'repost' && (
               <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 rounded-full text-xs text-blue-600 border border-blue-200/50">
                 <Send className="w-3 h-3" />
@@ -310,13 +310,16 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
         </div>
       </div>
 
-      {/* ── Content ────────────────────────────────────────────────────────── */}
-      {content.imageUrl && (
-        <div className="w-full">
+      {/* ── Изображение поста - показываем ТОЛЬКО если есть и нет ошибки ────── */}
+      {hasImage && (
+        <div className="w-full bg-gray-100">
           <img
             src={content.imageUrl}
             alt={content.title || 'Изображение поста'}
             className="w-full h-auto object-cover"
+            style={{ aspectRatio: '16/9' }}
+            loading="lazy"
+            onError={() => setImageError(true)}
           />
         </div>
       )}

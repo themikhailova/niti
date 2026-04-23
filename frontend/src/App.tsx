@@ -47,7 +47,7 @@ export default function App() {
   const [posts, setPosts] = React.useState<Post[]>([]);
   const [boards, setBoards] = React.useState<Board[]>([]);
   const [recommendedBoards, setRecommendedBoards] = React.useState<Board[]>([]);
-  const [trendingBoards, setTrendingBoards] = React.useState<Board[]>([]);
+  const [subscribedBoards, setSubscribedBoards] = React.useState<Board[]>([]);
 
   const [userProfile, setUserProfile] = React.useState<UserProfile | null>(null);
   const [savedPosts, setSavedPosts] = React.useState<Post[]>([]);
@@ -112,22 +112,37 @@ export default function App() {
     init();
   }, []);
 
-  const loadBoards = React.useCallback(() => {
+  const loadBoards = React.useCallback(async () => {
     setLoadingBoards(true);
-    Promise.all([
-      boardsApi.getRecommended(6).catch(() => []),
-      boardsApi.getTrending(6).catch(() => []),
-    ]).then(([rec, trend]) => {
-      setRecommendedBoards(rec);
-      setTrendingBoards(trend);
+    try {
+      // Загружаем рекомендованные (всегда)
+      const recommended = await boardsApi.getRecommended(6);
+      setRecommendedBoards(recommended);
+      
+      // Загружаем подписки только если пользователь авторизован
+      if (currentUser) {
+        const subscribed = await boardsApi.getSubscribed(6);
+        setSubscribedBoards(subscribed);
+      } else {
+        // Для гостей показываем trending
+        const trending = await boardsApi.getTrending(6);
+        setSubscribedBoards(trending);
+      }
+      
+      // Объединяем для мобильной версии
       const seen = new Set<string>();
-      setBoards([...rec, ...trend].filter(b => {
+      const allBoards = [...recommended, ...(currentUser ? subscribedBoards : [])];
+      setBoards(allBoards.filter(b => {
         if (seen.has(b.id)) return false;
         seen.add(b.id);
         return true;
       }));
-    }).finally(() => setLoadingBoards(false));
-  }, []);
+    } catch (error) {
+      console.error('Failed to load boards:', error);
+    } finally {
+      setLoadingBoards(false);
+    }
+  }, [currentUser]);
 
   React.useEffect(() => { loadBoards(); }, [loadBoards]);
 
@@ -243,14 +258,27 @@ export default function App() {
 
   const handleFollow = async (boardId: string) => {
     try {
-      await boardsApi.follow(boardId);
-      const patch = (b: Board) => b.id === boardId ? { ...b, isFollowing: true, followers: b.followers + 1 } : b;
-      setBoards(p => p.map(patch));
-      setRecommendedBoards(p => p.map(patch));
-      setTrendingBoards(p => p.map(patch));
-      setToastMessage('Подписка оформлена!');
+      const result = await boardsApi.follow(boardId);
+      
+      // Обновляем статус в recommendedBoards
+      setRecommendedBoards(prev => prev.map(b => 
+        b.id === boardId ? { ...b, isFollowing: true, followers: result.followers } : b
+      ));
+      
+      // Если подписались - добавляем доску в subscribedBoards
+      if (result.isFollowing) {
+        const board = recommendedBoards.find(b => b.id === boardId);
+        if (board) {
+          setSubscribedBoards(prev => [board, ...prev].slice(0, 6));
+        }
+      } else {
+        // Если отписались - удаляем из subscribedBoards
+        setSubscribedBoards(prev => prev.filter(b => b.id !== boardId));
+      }
+      
+      setToastMessage(result.isFollowing ? 'Подписка оформлена!' : 'Вы отписались');
     } catch {
-      setToastMessage('Не удалось подписаться');
+      setToastMessage('Не удалось изменить подписку');
     }
     setShowToast(true);
   };
@@ -603,13 +631,13 @@ export default function App() {
               <aside className="hidden lg:block lg:col-span-3 bg-blue-50/40" style={colStyle}>
                 <div className="p-6">
                   <h2 className="text-sm font-semibold text-blue-900/60 uppercase tracking-wide mb-4 px-1">
-                    В тренде
+                    {currentUser ? 'Мои подписки' : 'В тренде'}
                   </h2>
                   {loadingBoards ? (
                     <div className="text-gray-400 text-sm text-center py-8">Загрузка...</div>
-                  ) : (
+                  ) : subscribedBoards.length > 0 ? (
                     <Masonry columnsCount={1} gutter="16px">
-                      {trendingBoards.map((board) => (
+                      {subscribedBoards.map((board) => (
                         <BoardPreview
                           key={board.id}
                           board={board}
@@ -618,6 +646,32 @@ export default function App() {
                         />
                       ))}
                     </Masonry>
+                  ) : (
+                    <div className="text-center py-8">
+                      {currentUser ? (
+                        <>
+                          <p className="text-gray-500 text-sm mb-3">
+                            Вы ещё не подписаны ни на одну доску
+                          </p>
+                          <button
+                            onClick={() => setShowCreateBoard(true)}
+                            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            Создать доску
+                          </button>
+                        </>
+                      ) : (
+                        <p className="text-gray-500 text-sm">
+                          <button
+                            onClick={() => setShowAuthModal(true)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            Войдите
+                          </button>
+                          , чтобы видеть подписки
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </aside>

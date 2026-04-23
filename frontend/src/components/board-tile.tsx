@@ -1,6 +1,7 @@
 import React from 'react';
 import { Users } from 'lucide-react';
 import type { Board } from '../data/mock-data';
+import {formatFollowers } from '../utils/helpers';
 
 interface BoardTileProps {
   board: Board;
@@ -15,6 +16,9 @@ export function BoardTile({ board, onClick }: BoardTileProps) {
         <div className="relative h-32 overflow-hidden">
           <img
             src={board.coverImage}
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = 'none';
+            }}
             alt={board.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
@@ -22,7 +26,7 @@ export function BoardTile({ board, onClick }: BoardTileProps) {
           
           {/* Post Count Badge */}
           <div className="absolute bottom-2 right-2 px-2 py-1 bg-white/90 backdrop-blur-sm rounded text-xs font-medium text-gray-700">
-            {board.postCount} постов
+            {board.postCount ?? 0} постов
           </div>
         </div>
         
@@ -33,7 +37,7 @@ export function BoardTile({ board, onClick }: BoardTileProps) {
           </h3>
           <div className="flex items-center gap-1 text-xs text-gray-500">
             <Users className="w-3 h-3" />
-            <span>{(board.followers).toFixed(1)} подписчиков</span>
+            <span>{formatFollowers(board.followers)} подписчиков</span>
           </div>
         </div>
       </div>
