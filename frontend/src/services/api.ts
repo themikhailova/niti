@@ -222,12 +222,20 @@ export const postsApi = {
     return data.posts;
   },
 
-  async repost(postId: string | number): Promise<Post> {
-    return apiFetch(`/posts/${postId}/repost`, { method: 'POST' });
-  },
-
+  /**
+   * POST /api/posts/<id>/save — toggle сохранения поста.
+   * Возвращает { saved: boolean, saves_count: number }
+   */
   async savePost(postId: string | number): Promise<{ saved: boolean; saves_count: number }> {
     return apiFetch(`/posts/${postId}/save`, { method: 'POST' });
+  },
+
+  /**
+   * GET /api/posts/saved — список сохранённых постов текущего пользователя.
+   * Возвращает { posts: Post[], total: number, has_more: boolean }
+   */
+  async getMySavedPosts(page = 1): Promise<{ posts: Post[]; total: number; has_more: boolean }> {
+    return apiFetch(`/posts/saved?page=${page}`);
   },
 };
 
@@ -485,5 +493,79 @@ export const usersApi = {
 
   async unfollow(username: string): Promise<{ ok: boolean; isFollowing: boolean; followers: number }> {
     return apiFetch(`/users/${username}/unfollow`, { method: 'POST' });
+  },
+};
+
+// ============================================================
+// SAVES (закладки)
+// ============================================================
+
+export interface SaveToggleResponse {
+  saved:       boolean;
+  saves_count: number;
+}
+
+export interface SavesCountResponse {
+  saves_count: number;
+  is_saved:    boolean;
+}
+
+export const savesApi = {
+  /**
+   * POST /api/posts/<id>/save — toggle закладки.
+   * Если уже сохранён → убирает, иначе → сохраняет.
+   */
+  async toggle(postId: string | number): Promise<SaveToggleResponse> {
+    return apiFetch<SaveToggleResponse>(`/posts/${postId}/save`, { method: 'POST' });
+  },
+
+  /** GET /api/posts/<id>/saves/count — счётчик + флаг is_saved */
+  async getCount(postId: string | number): Promise<SavesCountResponse> {
+    return apiFetch<SavesCountResponse>(`/posts/${postId}/saves/count`);
+  },
+
+  /** GET /api/posts/saved — список сохранённых постов текущего пользователя */
+  async getMySaved(page = 1): Promise<{ posts: Post[]; total: number; has_more: boolean }> {
+    return apiFetch(`/posts/saved?page=${page}`);
+  },
+};
+
+// ============================================================
+// REPOSTS
+// ============================================================
+
+export interface RepostToggleResponse {
+  reposted:      boolean;
+  reposts_count: number;
+}
+
+export interface RepostsCountResponse {
+  reposts_count: number;
+  is_reposted:   boolean;
+}
+
+export const repostsApi = {
+  /**
+   * POST /api/posts/<id>/repost — toggle репоста.
+   * comment — опциональный текст к репосту (макс. 500 символов).
+   */
+  async toggle(
+    postId: string | number,
+    comment?: string,
+  ): Promise<RepostToggleResponse> {
+    return apiFetch<RepostToggleResponse>(`/posts/${postId}/repost`, {
+      method: 'POST',
+      body: JSON.stringify({ comment: comment ?? '' }),
+    });
+  },
+
+  /** GET /api/posts/<id>/reposts/count — счётчик + флаг is_reposted */
+  async getCount(postId: string | number): Promise<RepostsCountResponse> {
+    return apiFetch<RepostsCountResponse>(`/posts/${postId}/reposts/count`);
+  },
+
+  /** GET /api/posts/reposted — список репостов текущего пользователя */
+  async getMyReposts(page = 1): Promise<{ posts: Post[]; total: number; has_more: boolean }> {
+    return apiFetch(`/posts/reposted?page=${page}`);
   },
 };

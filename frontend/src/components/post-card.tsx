@@ -50,10 +50,17 @@ export function PostCard({ post, onClick, onDelete, onRequireAuth, onReposted, o
   const [showShareMenu, setShowShareMenu] = React.useState(false);
   const [shareLoading, setShareLoading] = React.useState(false);
   const [saveLoading, setSaveLoading] = React.useState(false);
-  const [saved, setSaved] = React.useState(false);
+  // Инициализируем из данных поста — бэкенд отдаёт is_saved и engagement.saves
+  const [saved, setSaved] = React.useState(post.is_saved ?? post.post_kind === 'saved' ?? false);
   const [saveCount, setSaveCount] = React.useState(engagement.saves ?? 0);
 
   const shareMenuRef = React.useRef<HTMLDivElement>(null);
+
+  // Синхронизируем saved при смене поста
+  React.useEffect(() => {
+    setSaved(post.is_saved ?? post.post_kind === 'saved' ?? false);
+    setSaveCount(post.engagement?.saves ?? 0);
+  }, [post.id, post.is_saved]);
 
   // Закрываем share-меню при клике снаружи
   React.useEffect(() => {

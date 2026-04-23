@@ -1,6 +1,6 @@
 import React from 'react';
 import Masonry from 'react-responsive-masonry';
-import { Settings, Plus, Grid, List, Trash2, Filter, Send, Bookmark } from 'lucide-react';
+import { Settings, Plus, Grid, List, Trash2, Bookmark } from 'lucide-react';
 import { PostCard } from './post-card';
 import { BoardTile } from './board-tile';
 import { EditProfileModal } from './EditProfileModal';
@@ -59,9 +59,8 @@ export function ProfilePage({
   // При изменении подписки инкрементируем — модал перезагрузит список
   const [followReloadKey, setFollowReloadKey] = React.useState(0);
 
-  // Новый фильтр типа постов
-  const [feedTypeFilter, setFeedTypeFilter] = React.useState<Set<'reposts' | 'saved'>>(new Set());
-  const [showFeedTypeFilter, setShowFeedTypeFilter] = React.useState(false);
+  // Вкладки: all = все посты, saved = сохранённые
+  const [activeTab, setActiveTab] = React.useState<'all' | 'saved'>('all');
 
   // Синхронизируем при смене профиля (например переход к другому пользователю)
   React.useEffect(() => {
@@ -77,27 +76,13 @@ export function ProfilePage({
     }));
   }, [profile.posts, isOwnProfile]);
 
-  // Фильтрация постов по типу (reposts / saved)
   const filteredProfilePosts = React.useMemo(() => {
-    let result = enrichedPosts;
-    if (feedTypeFilter.size > 0) {
-      result = result.filter((p) => {
-        if (feedTypeFilter.has('reposts') && p.post_kind === 'repost') return true;
-        if (feedTypeFilter.has('saved') && p.post_kind === 'saved') return true;
-        return false;
-      });
+    if (activeTab === 'saved') {
+      return enrichedPosts.filter((p) => p.post_kind === 'saved' || p.is_saved);
     }
-    return result;
-  }, [enrichedPosts, feedTypeFilter]);
-
-  const toggleFeedType = (type: 'reposts' | 'saved') => {
-    setFeedTypeFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
-    });
-  };
+    // Вкладка «Все»: показываем только обычные посты и репосты (не saved-копии)
+    return enrichedPosts.filter((p) => p.post_kind !== 'saved');
+  }, [enrichedPosts, activeTab]);
 
   const handleFollowToggle = async () => {
     if (!isAuthenticated) {
@@ -327,64 +312,40 @@ export function ProfilePage({
           </div>
         </div>
 
-        {/* Фильтр типа постов */}
-        <div className="mb-4">
-          <button
-            onClick={() => setShowFeedTypeFilter(!showFeedTypeFilter)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-              feedTypeFilter.size > 0
-                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                : 'border-gray-300 hover:border-gray-400 text-gray-700'
-            }`}
-          >
-            <Filter className="w-4 h-4" />
-            <span className="font-medium text-sm">
-              {feedTypeFilter.size === 0
-                ? 'Настроить ленту постов'
-                : [...feedTypeFilter].map(t => t === 'reposts' ? 'Репосты' : 'Сохранённое').join(', ')}
-            </span>
-            {feedTypeFilter.size > 0 && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setFeedTypeFilter(new Set()); }}
-                className="ml-1 text-blue-500 hover:text-blue-700"
-              >
-                ×
-              </button>
-            )}
-          </button>
-          {showFeedTypeFilter && (
-            <div className="mt-2 p-3 bg-white border border-gray-200 rounded-lg shadow-lg">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => { setFeedTypeFilter(new Set()); setShowFeedTypeFilter(false); }}
-                  className={`px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
-                    feedTypeFilter.size === 0 ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                  }`}
-                >
-                  Все
-                </button>
-                {(['reposts', 'saved'] as const).map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => toggleFeedType(type)}
-                    className={`px-3 py-2 rounded-lg border text-sm font-medium transition-all flex items-center gap-1.5 ${
-                      feedTypeFilter.has(type) ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                    }`}
-                  >
-                    {type === 'reposts' ? <><Send className="w-3.5 h-3.5" />Репосты</> : <><Bookmark className="w-3.5 h-3.5" />Сохранённое</>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Вкладки: Все / Сохранённое */}
+        {isOwnProfile && (
+          <div className="mb-4 flex items-center gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors font-medium text-sm ${
+                activeTab === 'all' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Мои посты
+            </button>
+            <button
+              onClick={() => setActiveTab('saved')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors font-medium text-sm ${
+                activeTab === 'saved' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Bookmark className="w-4 h-4" />
+              Сохранённое
+              {filteredProfilePosts.length > 0 && activeTab === 'saved' && (
+                <span className="bg-blue-100 text-blue-700 text-xs rounded-full px-1.5 py-0.5">
+                  {filteredProfilePosts.length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
 
         {filteredProfilePosts.length === 0 && (
           <div className="text-center py-16 text-gray-400">
             <p className="text-lg">
-              {feedTypeFilter.size > 0 ? 'Постов с выбранными фильтрами нет' : 'Постов пока нет'}
+              {activeTab === 'saved' ? 'Сохранённых постов нет' : 'Постов пока нет'}
             </p>
-            {isOwnProfile && feedTypeFilter.size === 0 && (
+            {isOwnProfile && activeTab === 'all' && (
               <button
                 onClick={onCreatePost}
                 className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"

@@ -196,12 +196,16 @@ def _delete_file(relative_url: Optional[str]) -> None:
 
 def _engagement(post) -> dict:
     """Реальные счётчики engagement из БД."""
-    total_reactions = post.reactions.count()
-    total_comments = post.comments.count()
     return {
-        "reactions": total_reactions,
-        "comments": total_comments,
-        "saves": 0,  # расширить при добавлении функции сохранений
+        "reactions": post.reactions.count(),
+        "comments":  post.comments.count(),
+        # Считаем число сохранений: сколько пользователей сохранило этот пост
+        # Для обычного поста — ищем saved-копии с original_post_id = post.id
+        # Для самой saved-копии — ищем по её original_post_id
+        "saves": Post.query.filter_by(
+            original_post_id=post.original_post_id if post.post_kind == "saved" else post.id,
+            post_kind="saved",
+        ).count() if (post.post_kind == "saved" or post.id) else 0,
     }
 
 
@@ -248,6 +252,14 @@ def post_to_dict(post: Post, viewer_id: Optional[int] = None) -> dict:
         },
         # ── ownership ──────────────────────────────────────────────────────
         "is_own": viewer_id == post.user_id if viewer_id else False,
+        # Сохранил ли текущий пользователь этот пост
+        "is_saved": Post.query.filter_by(
+            user_id=viewer_id,
+            original_post_id=post.id,
+            post_kind="saved",
+        ).first() is not None if viewer_id and post.post_kind != "saved" else (
+            post.post_kind == "saved" and post.user_id == viewer_id if viewer_id else False
+        ),
         # ── engagement (живые счётчики) ────────────────────────────────────
         "engagement": _engagement(post),
         # ── доска ──────────────────────────────────────────────────────────
@@ -413,6 +425,50 @@ def my_posts():
     user_id = int(get_jwt_identity())
     posts = Post.query.filter_by(user_id=user_id).order_by(Post.created_at.desc()).all()
     return jsonify([post_to_dict(p, user_id) for p in posts]), 200
+
+
+@api_bp.route("/posts/saved", methods=["GET"])
+@jwt_required()
+def my_saved_posts():
+    """
+    GET /api/posts/saved?page=1&per_page=20
+    Список постов сохранённых текущим пользователем.
+    Возвращает оригинальные посты (не saved-копии), отсортированные по дате сохранения.
+    """
+    user_id  = int(get_jwt_identity())
+    page     = request.args.get("page", 1, type=int)
+    per_page = min(request.args.get("per_page", 20, type=int), 100)
+
+    # Берём saved-записи пользователя — это копии постов с post_kind="saved"
+    saved_records = (
+        Post.query
+        .filter_by(user_id=user_id, post_kind="saved")
+        .order_by(Post.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+    total = Post.query.filter_by(user_id=user_id, post_kind="saved").count()
+
+    # Для каждой saved-записи берём оригинальный пост и сериализуем его
+    result = []
+    for saved_rec in saved_records:
+        original = db.session.get(Post, saved_rec.original_post_id)
+        if not original:
+            continue
+        d = post_to_dict(original, user_id)
+        d["is_saved"]   = True
+        d["saved_at"]   = saved_rec.created_at.isoformat() if saved_rec.created_at else None
+        d["post_kind"]  = "saved"   # чтобы ProfilePage мог фильтровать
+        result.append(d)
+
+    return jsonify({
+        "posts":    result,
+        "page":     page,
+        "per_page": per_page,
+        "total":    total,
+        "has_more": total > page * per_page,
+    }), 200
 
 
 @api_bp.route("/posts/<int:post_id>", methods=["GET"])

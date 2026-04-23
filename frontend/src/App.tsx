@@ -50,6 +50,7 @@ export default function App() {
   const [trendingBoards, setTrendingBoards] = React.useState<Board[]>([]);
 
   const [userProfile, setUserProfile] = React.useState<UserProfile | null>(null);
+  const [savedPosts, setSavedPosts] = React.useState<Post[]>([]);
   const [viewedProfile, setViewedProfile] = React.useState<UserProfile | null>(null);
   const [viewingOwnProfile, setViewingOwnProfile] = React.useState(true);
   const [pendingProfileUsername, setPendingProfileUsername] = React.useState<string | null>(null);
@@ -129,6 +130,12 @@ export default function App() {
   }, []);
 
   React.useEffect(() => { loadBoards(); }, [loadBoards]);
+
+  React.useEffect(() => {
+    if (currentView === 'profile' && viewingOwnProfile && currentUser) {
+      loadSavedPosts();
+    }
+  }, [currentView, viewingOwnProfile, currentUser]);
 
   React.useEffect(() => {
     if (currentView === 'profile' && viewingOwnProfile && currentUser && !userProfile) {
@@ -261,6 +268,21 @@ export default function App() {
     }
   };
 
+  const loadSavedPosts = React.useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const res = await postsApi.getMySavedPosts();
+      setSavedPosts(res.posts ?? []);
+    } catch {
+      setSavedPosts([]);
+    }
+  }, [currentUser]);
+
+  const handlePostSaved = (post: Post) => {
+    // После сохранения — перезагружаем список сохранённых
+    loadSavedPosts();
+  };
+
   const handlePostDeleted = (postId: string) => {
     setPosts((prev) => prev.filter((p) => p.id !== postId));
     setUserProfile((prev) => prev ? { ...prev, posts: prev.posts.filter((p) => p.id !== postId) } : prev);
@@ -273,7 +295,16 @@ export default function App() {
     [posts, selectedMoodFilter]
   );
 
-  const activeProfile = viewingOwnProfile ? userProfile : viewedProfile;
+  // Объединяем обычные посты + сохранённые для собственного профиля
+  const mergedUserProfile = React.useMemo(() => {
+    if (!userProfile || !viewingOwnProfile) return userProfile;
+    // Избегаем дублей: сохранённые посты добавляем только если их нет среди обычных
+    const ownIds = new Set(userProfile.posts.map((p) => p.id));
+    const extraSaved = savedPosts.filter((p) => !ownIds.has(p.id));
+    return { ...userProfile, posts: [...userProfile.posts, ...extraSaved] };
+  }, [userProfile, savedPosts, viewingOwnProfile]);
+
+  const activeProfile = viewingOwnProfile ? mergedUserProfile : viewedProfile;
 
   // Стиль для колонок фида с независимым скроллом
   const colStyle: React.CSSProperties = {
@@ -536,6 +567,7 @@ export default function App() {
                           post={post}
                           onClick={() => { setPreviousView('feed'); setSelectedPost(post); setCurrentView('post'); }}
                           onDelete={handlePostDeleted}
+                          onSaved={handlePostSaved}
                           onRequireAuth={() => setShowAuthModal(true)}
                           currentUsername={currentUser?.username}
                         />
