@@ -55,7 +55,7 @@ def board_to_dict(board: Board, current_user: Optional[User] = None) -> dict:
         'id':           str(board.id),
         'name':         board.name,
         'description':  board.description or '',
-        'coverImage':   board.cover_image or '',
+        'coverImage': board.cover_image or None,
         'tags':         board.tags or [],
         'isPublic':     board.is_public,
         'followers':    board.followers_count,
@@ -463,3 +463,41 @@ def get_trending_boards():
     current_user = _get_current_user()
     page_boards = ranked[:limit]
     return jsonify({'boards': [board_to_dict(b, current_user) for b in page_boards]}), 200
+
+@api_bp.route('/boards/subscribed', methods=['GET'])
+@jwt_required()  # Требуем JWT, так как нужны подписки конкретного пользователя
+def get_subscribed_boards():
+    """
+    GET /api/boards/subscribed?limit=6
+    Возвращает доски, на которые подписан текущий пользователь.
+    Используется для правой колонки "Мои подписки".
+    """
+    try:
+        user_id = int(get_jwt_identity())
+    except Exception:
+        return jsonify({'error': 'Неверный токен'}), 401
+    
+    current_user = db.session.get(User, user_id)
+    if not current_user:
+        return jsonify({'error': 'Пользователь не найден'}), 404
+    
+    limit = request.args.get('limit', 6, type=int)
+    # Ограничиваем максимум 20 досками
+    limit = min(limit, 20)
+    
+    # Получаем доски, на которые подписан пользователь
+    # Сортируем сначала по количеству подписчиков, затем по дате обновления
+    subscribed_boards = current_user.followed_boards.order_by(
+        Board.followers_count.desc(),
+        Board.updated_at.desc()
+    ).limit(limit).all()
+    
+    # Сериализуем с флагом isFollowing = True (так как это подписки пользователя)
+    result = []
+    for board in subscribed_boards:
+        board_dict = board_to_dict(board, current_user)
+        # Убеждаемся, что isFollowing = True для подписанных досок
+        board_dict['isFollowing'] = True
+        result.append(board_dict)
+    
+    return jsonify({'boards': result}), 200
