@@ -223,9 +223,9 @@ def post_to_dict(post: Post, viewer_id: Optional[int] = None) -> dict:
     if post.title:
         content["title"] = post.title
     if post.image_url:
-        content["imageUrl"] = f"/static/{post.image_url}"
+        content["imageUrl"] = f"{post.image_url}"
     if post.image_preview_url:
-        content["imagePreviewUrl"] = f"/static/{post.image_preview_url}"
+        content["imagePreviewUrl"] = f"{post.image_preview_url}"
     if post.content:
         if post.post_type == Post.TYPE_TEXT:
             content["text"] = post.content

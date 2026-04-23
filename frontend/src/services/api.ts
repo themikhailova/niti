@@ -327,7 +327,7 @@ export const commentsApi = {
 export const boardsApi = {
   /** Все публичные доски (старый, обратная совместимость) */
   async getAll(limit = 10): Promise<Board[]> {
-    const data = await apiFetch<{ boards: Board[] }>(`/boards?limit=${limit}`);
+    const data = await apiFetch<{ boards: Board[] }>(`/boards`);
     return data.boards;
   },
 
@@ -335,8 +335,8 @@ export const boardsApi = {
    * GET /api/boards/recommended — персональные рекомендации (левая колонка).
    * Для гостей возвращает trending.
    */
-  async getRecommended(limit = 6): Promise<Board[]> {
-    const data = await apiFetch<{ boards: Board[] }>(`/boards/recommended?limit=${limit}`);
+  async getRecommended(limit = 1000): Promise<Board[]> {
+    const data = await apiFetch<{ boards: Board[] }>(`/boards/recommended`);
     return data.boards;
   },
 
@@ -344,15 +344,15 @@ export const boardsApi = {
    * GET /api/boards/trending — глобальный тренд (правая колонка).
    * Popularity + momentum + freshness. Не зависит от пользователя.
    */
-  async getTrending(limit = 6): Promise<Board[]> {
-    const data = await apiFetch<{ boards: Board[] }>(`/boards/trending?limit=${limit}`);
+  async getTrending(limit = 1000): Promise<Board[]> {
+    const data = await apiFetch<{ boards: Board[] }>(`/boards/trending`);
     return data.boards;
   },
-  
-  async getSubscribed(limit = 6): Promise<Board[]> {
+
+  async getSubscribed(limit = 1000): Promise<Board[]> {
     if (!tokenStorage.getAccess()) return [];
     try {
-      const data = await apiFetch<{ boards: Board[] }>(`/boards/subscribed?limit=${limit}`);
+      const data = await apiFetch<{ boards: Board[] }>(`/boards/subscribed`);
       return data.boards;
     } catch (error) {
       console.error('Failed to load subscribed boards:', error);

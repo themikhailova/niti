@@ -431,19 +431,19 @@ def get_recommended_boards():
     """
     GET /api/boards/recommended?limit=6
     Персонализированные рекомендации досок для авторизованного пользователя.
-    Гостям — тот же ответ что и /boards/trending.
     """
-    limit        = request.args.get('limit', 6, type=int)
+    # limit = request.args.get('limit', 6, type=int)  # ← ЗАКОММЕНТИРОВАТЬ
     current_user = _get_current_user()
 
-    pool_size = min(limit * 8, 150)
+    # Убираем лимит на количество досок для рекомендации
+    pool_size = 200  # Увеличиваем или делаем без лимита
     pool = Board.query.filter_by(is_public=True)\
                       .order_by(Board.followers_count.desc())\
                       .limit(pool_size).all()
 
     ranked = rank_boards_personalized(pool, current_user)
-    page_boards = ranked[:limit]
-    return jsonify({'boards': [board_to_dict(b, current_user) for b in page_boards]}), 200
+    # page_boards = ranked[:limit]  # ← ЗАКОММЕНТИРОВАТЬ
+    return jsonify({'boards': [board_to_dict(b, current_user) for b in ranked]}), 200
 
 
 @api_bp.route('/boards/trending', methods=['GET'])
@@ -465,39 +465,22 @@ def get_trending_boards():
     return jsonify({'boards': [board_to_dict(b, current_user) for b in page_boards]}), 200
 
 @api_bp.route('/boards/subscribed', methods=['GET'])
-@jwt_required()  # Требуем JWT, так как нужны подписки конкретного пользователя
+@jwt_required()
 def get_subscribed_boards():
     """
-    GET /api/boards/subscribed?limit=6
-    Возвращает доски, на которые подписан текущий пользователь.
-    Используется для правой колонки "Мои подписки".
+    GET /api/boards/subscribed
+    Возвращает все доски, на которые подписан пользователь.
     """
-    try:
-        user_id = int(get_jwt_identity())
-    except Exception:
-        return jsonify({'error': 'Неверный токен'}), 401
-    
+    user_id = int(get_jwt_identity())
     current_user = db.session.get(User, user_id)
+    
     if not current_user:
         return jsonify({'error': 'Пользователь не найден'}), 404
     
-    limit = request.args.get('limit', 6, type=int)
-    # Ограничиваем максимум 20 досками
-    limit = min(limit, 20)
-    
-    # Получаем доски, на которые подписан пользователь
-    # Сортируем сначала по количеству подписчиков, затем по дате обновления
+    # Убираем limit
     subscribed_boards = current_user.followed_boards.order_by(
         Board.followers_count.desc(),
         Board.updated_at.desc()
-    ).limit(limit).all()
+    ).all()  # ← убрали .limit()
     
-    # Сериализуем с флагом isFollowing = True (так как это подписки пользователя)
-    result = []
-    for board in subscribed_boards:
-        board_dict = board_to_dict(board, current_user)
-        # Убеждаемся, что isFollowing = True для подписанных досок
-        board_dict['isFollowing'] = True
-        result.append(board_dict)
-    
-    return jsonify({'boards': result}), 200
+    return jsonify({'boards': [board_to_dict(b, current_user) for b in subscribed_boards]}), 200
